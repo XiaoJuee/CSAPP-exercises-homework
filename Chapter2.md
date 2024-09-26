@@ -500,7 +500,7 @@ bool chapter2_261C(int x){
 C表达式：
 ``!~(x | ~0xFF)``
 
-### D. x的最低有效字节中的位都等于0
+### D. x的最高有效字节中的位都等于0
 解决方案:
 先提取出最高有效字节，接着判断是否为全0(可以利用2.61B的方法和书上的get_msb方法)
 ```c
@@ -521,9 +521,10 @@ bool chapter2_261D(int x){
 
 
 C表达式：
-``!((x >> (sizeof(int)-1) << 3) & 0xFF )``
+``!((x >> ((sizeof(int)-1) << 3)) & 0xFF )``
 
-## 2.62
+## 2.62 编写一个函数 int shifts_are_arithmetic()，在对 int类型的数使用算术右移的机器上运行时这个函数生成1，而其他情况下生成0。你的代码应该可以运行在任何字长的机器上。在几种机器上测试你的代码。
+
 **算数右移（Arithmetic Right Shift）**：
 保留符号位（最高位），即对于负数，右移时会填充 1；对于正数，右移时填充 0。
 适用于有符号整数，保持数值的符号。
@@ -531,5 +532,51 @@ C表达式：
 **逻辑右移（Logical Right Shift）**：
 不考虑符号位，始终在高位填充 0。
 适用于无符号整数，结果不依赖于原数的符号。
+
+答案有很多种
+**主要思想是负数右移后判断新填充的是否是1即可**
+```c
+int shifts_are_arithmetic(){
+    int x = ~0;
+    return (x>>(sizeof(int)<<3)) & x
+}
+```
+```c
+int int_shifts_are_arithemetic() {
+  int num = -1;
+  return !(num ^ (num >> 1));
+}
+```
+
+## 2.63 将下面的C函数代码补充完整。函数srl用算术右移(由值xsra给出)来完成逻辑右移，后面的其他操作不包括右移或者除法。函数sra用逻辑右移(由值xsr1给出)来完成算术右移，后面的其他操作不包括右移或者除法。可以通过计算8*sizeof(int)来确定数据类型int中的位数w。位移量k的取值范围为0~w-1。
+```c
+unsigned srl(unsigned x，intk)
+{
+    /*Perform shift arithmetically */
+    unsigned xsra=(int)x>>k;
+    ...
+}
+int sra(int x,int k)
+{
+    /*Perform shift logically */
+    int xsrl=(unsigned)x>>k;
+    ...
+}
+```
+
+对于函数srl仅仅需要把右移填充的部分直接归零即可。
+首先得要产生除了最高的前k位都为0，其余为都为1的二进制串。
+很容易想到``(int)-1 >> k``，但不允许右移
+如果反过来将答案取反，就变成了最高的前k位都为1，其余为都为0的二进制串。
+``(int)-1 << ((sizeof(int)<<3) - k)``就可以得到答案。
+再将其取反的结果与xsra求按位且即可。
+```c
+unsigned srl(unsigned x，intk)
+{
+    /*Perform shift arithmetically */
+    unsigned xsra=(int)x>>k;
+    return xsra & ~((int)-1 << ((sizeof(int)<<3) - k))
+}
+```
 
 更多更新请看[GITHUB仓库](https://github.com/XiaoJuee/CSAPP-exercises-homework/tree/main)
