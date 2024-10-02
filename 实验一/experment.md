@@ -468,9 +468,235 @@ int specialBits(void) {
 }
 ```
 这道题就是说要你返回值为``0xffca3fff``
-首先观察到很多f
-所以起手先用``~0``创建一个``0xffffffff``
+```c
+int specialBits(void) {
+    return ~(((0x35)<<16) | ((0xc0)<<8));
+}
+```
+首先有个很简单的处理思路
+先把 ``0xca``取反后用右移放到对应位置
+再把 ``0x3f``取反后用右移放到对应位置
+最后用按位或进行拼接后整个取反就能得到答案
+但问题是这种做法用了4个操作符，要求是3个操作符
+最外层的取反暂时没用想法能去掉，那么里面能不能合并是一条路子。
 
+观察到``0xca``和``0x3f``是在一起的，如果能直接得到``~0xca3f``然后将其位移到合适位置也可以
+``~0xca3f = 0x35c0 (0011 0101 1100 0000)``
+从二进制的角度，实际上我们只需要将有1的地方表示出来即可，发现完全包含所有1的字串``11 0101 11``长度为8，恰好在允许表示范围内
+整理该字串得到``0xD7 (1101 0111)``
+
+答案就变成了
+```c
+/* 
+ * specialBits - return bit pattern 0xffca3fff
+ *   Legal ops: ! ~ & ^ | + << >>
+ *   Max ops: 3
+ *   Rating: 1
+ */
+int specialBits(void) {
+    return ~(0xD7 << 14);
+}
+```
+输入指令``./btest -f specialBits``测试发现是对的
+
+## upperBits
+```c
+/* 
+ * upperBits - pads n upper bits with 1's
+ *  You may assume 0 <= n <= 32
+ *  Example: upperBits(4) = 0xF0000000
+ *  Legal ops: ! ~ & ^ | + << >>
+ *  Max ops: 10
+ *  Rating: 1
+ */
+int upperBits(int n) {
+  return 2;
+}
+```
+用 1 填充 n 个高位
+意思是返回值的最高的 n 位都是 1
+由于不能使用减法，也没说允许使用 ``sizeof(int)``,这里尽量先不用
+
+这里思路是既然无法精准的定位和位移，那么先将其取反
+题目就变成了最高的 n 位都是 0，其他位都是1
+
+题目明确说了
+你可以假设你的机器：
+1. 使用 2 的补码，32 位整数表示法。
+2. 算术右移。
+
+那么可以先全变为1 ， 即``~0``,因为是算数右移，我们需要把最高的符号位变为 1
+
+## bitMatch
+```c
+/* 
+ * bitMatch - Create mask indicating which bits in x match those in y
+ *            using only ~ and & 
+ *   Example: bitMatch(0x7, 0xE) = 0x6
+ *   Legal ops: ~ & |
+ *   Max ops: 14
+ *   Rating: 1
+ */
+int bitMatch(int x, int y) {
+  return ~(((~x)&y) | ((~y)&x));
+}
+```
+题目意思是创建一个掩码，指示 x 中哪些位与 y 中的位匹配
+样例给的是
+``0x7(0111) 0xE(1110)``
+第二三位匹配，所以答案是``(0110) 0x6``
+
+书本上练习题2.13 很类似(甚至就是拓展题)，我在解析该题的时候用到的方法和这题类似
+都是使用真值表进行的，这里可以阅读我当时的做法，自行去推即可
+
+
+## bitOr
+```c
+/* 
+ * bitOr - x|y using only ~ and & 
+ *   Example: bitOr(6, 5) = 7
+ *   Legal ops: ~ &
+ *   Max ops: 8
+ *   Rating: 1
+ */
+int bitOr(int x, int y) {
+  return ~(~x & ~y);
+}
+```
+书本上练习题2.13 很类似，我在解析该题的时候用到的方法和这题类似
+都是使用真值表进行的，这里可以阅读我当时的做法，自行去推即可
+
+## absVal
+```c
+/* 
+ * absVal - absolute value of x
+ *   Example: absVal(-1) = 1.
+ *   You may assume -TMax <= x <= TMax
+ *   Legal ops: ! ~ & ^ | + << >>
+ *   Max ops: 10
+ *   Rating: 4
+ */
+int absVal(int x) {
+  return 2;
+}
+```
+
+## logicalNeg
+```c
+/* 
+ * logicalNeg - implement the ! operator, using all of 
+ *              the legal operators except !
+ *   Examples: logicalNeg(3) = 0, logicalNeg(0) = 1
+ *   Legal ops: ~ & ^ | + << >>
+ *   Max ops: 12
+ *   Rating: 4 
+ */
+int logicalNeg(int x) {
+  return 2;
+}
+```
+
+## bitParity
+```c
+/*
+ * bitParity - returns 1 if x contains an odd number of 0's
+ *   Examples: bitParity(5) = 0, bitParity(7) = 1
+ *   Legal ops: ! ~ & ^ | + << >>
+ *   Max ops: 20
+ *   Rating: 4
+ */
+int bitParity(int x) {
+  return 2;
+}
+```
+
+## byteSwap
+```c
+/* 
+ * byteSwap - swaps the nth byte and the mth byte
+ *  Examples: byteSwap(0x12345678, 1, 3) = 0x56341278
+ *            byteSwap(0xDEADBEEF, 0, 2) = 0xDEEFBEAD
+ *  You may assume that 0 <= n <= 3, 0 <= m <= 3
+ *  Legal ops: ! ~ & ^ | + << >>
+ *  Max ops: 25
+ *  Rating: 2
+ */
+int byteSwap(int x, int n, int m) {
+    return 2;
+}
+```
+
+## getByte
+```c
+/* 
+ * getByte - Extract byte n from word x
+ *   Bytes numbered from 0 (least significant) to 3 (most significant)
+ *   Examples: getByte(0x12345678,1) = 0x56
+ *   Legal ops: ! ~ & ^ | + << >>
+ *   Max ops: 6
+ *   Rating: 2
+ */
+int getByte(int x, int n) {
+  return 2;
+}
+```
+
+## isGreater
+```c
+/* 
+ * isGreater - if x > y  then return 1, else return 0 
+ *   Example: isGreater(4,5) = 0, isGreater(5,4) = 1
+ *   Legal ops: ! ~ & ^ | + << >>
+ *   Max ops: 24
+ *   Rating: 3
+ */
+int isGreater(int x, int y) {
+  return 2;
+}
+```
+## isNegative
+```c
+/* 
+ * isNegative - return 1 if x < 0, return 0 otherwise 
+ *   Example: isNegative(-1) = 1.
+ *   Legal ops: ! ~ & ^ | + << >>
+ *   Max ops: 6
+ *   Rating: 2
+ */
+int isNegative(int x) {
+  return !!(x>>31);
+}
+```
+题目意思是如果x小于0返回1，否则返回0
+
+思路就很简单了，判断最高位是否是1即可。
+
+这里的思路是因为是算数右移，补充最高位，所以右移31位，如果是正数那么右移完肯定是0
+
+两次取反是为了负数最后返回值是1
+## isPower2
+```c
+/*
+ * isPower2 - returns 1 if x is a power of 2, and 0 otherwise
+ *   Examples: isPower2(5) = 0, isPower2(8) = 1, isPower2(0) = 0
+ *   Note that no negative number is a power of 2.
+ *   Legal ops: ! ~ & ^ | + << >>
+ *   Max ops: 20
+ *   Rating: 4
+ */
+int isPower2(int x) {
+  return (!(x&(x-1))) & (!(x>>31)) & !!x;
+}
+```
+
+这个做题的思路就在于如果是2的幂，那么二进制里面只会出现一个1
+
+如果把这个1减去，也就是``x&(x-1)``，如果结果为0那么肯定是2的幂
+
+易错点就在没去判断负数不是二的幂
+上面一题判断了什么是负数，直接拿过来用即可
+
+还有易错的地方就是 0 ，0不是二的幂 ， 所以后面跟上``!!x``就可以完成判断
 
 # 错误处理
 ## 错误1:make btest出错
