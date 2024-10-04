@@ -713,9 +713,43 @@ int bitParity(int x) {
  *  Rating: 2
  */
 int byteSwap(int x, int n, int m) {
-    return 2;
+    int xn = x>>(n<<3);
+    int xm = x>>(m<<3);
+    x = (x&(~(((~xn)&0xFF)<<(m<<3)))) | (((xn&0xFF)<<(m<<3)));
+    x = (x&(~(((~xm)&0xFF)<<(n<<3)))) | (((xm&0xFF)<<(n<<3)));
+    return x;
 }
 ```
+
+本题意思是将第n个字节和第m个字节互换
+样例给的 ``byteSwap(0x12345678 , 1 , 3)`` 就是把第一三个字节互换
+也就是``0x56``和``0x12``互换即可。
+通过样例也可知整个32位被分为4个字节并且是从0号开始编号
+
+这里的思路是
+首先提取第n个字节和第m个字节，对应上面的``xn和xm``
+
+接着利用按位且的特性：将原来位上是1，但互换后那一位不是1的地方变为0
+接着再用按位或将其填充。
+
+用一个字节来解释就是：
+``(a & b) | b = b``
+``(a & 0xFF) | 0x0 = a``
+
+所以我们需要构造一个位移到对应位子的字节，并且将其他地方都变为0和1各一次。
+
+按照样例来讲就是需要得到``0x56000000 , 0x56111111 , 0x00001200 , 0x11111211``这四个数
+然后通过计算
+``(0x12345678 & 0x56111111) | 0x56000000 = 0x56345678``
+``(0x56345678 & 0x11111211) | 0x00001200 = 0x56341278``
+
+答案就出来了。
+
+具体操作中间利用了且上``0xFF``去去掉前面字节不确定位。
+相当于说``xn = x>>(n<<3)``，提取到最低位后前面高位字节的二进制串是不确定的。
+按位且上``0xFF``后就肯定变为了``000000xn``
+
+这样为后续操作提供了便利
 
 ## getByte
 ```c
@@ -728,9 +762,15 @@ int byteSwap(int x, int n, int m) {
  *   Rating: 2
  */
 int getByte(int x, int n) {
-  return 2;
+  return x>>(n<<3) & 0xFF;
 }
 ```
+这题需要你提取出第 n 个字节
+
+这道题...按理来说应该放在上一道题前面。
+
+这里不过多讲解了，解析在上题。
+
 
 ## isGreater
 ```c
@@ -742,9 +782,58 @@ int getByte(int x, int n) {
  *   Rating: 3
  */
 int isGreater(int x, int y) {
-  return 2;
+  int ysubx = y + (~x+1);
+  int xsin = x>>31 & 0x1;
+  int ysin = y>>31 & 0x1;
+  int ysxsin = ysubx >> 31 & 0x1;
+  return !!(x^y) & (!(xsin^ysin) | !xsin) & ((xsin ^ ysin) | ysxsin);
 }
 ```
+本题意思是判断 x 是否(严格)大于 y ， 如果成立返回 1 ， 否则返回 0
+
+
+一般判断大小的思想是相减，然后判断是否大于零或者小于零...
+
+如果把``x^y``就可以得到x和y不一样的位在哪里。
+
+也就是说``x^y``可以判断是否相同
+
+如果相同返回 0 ， 否则返回 其他数
+
+所以第一个式子就是``!!(x ^ y)``
+
+设 xsin 为 x 的符号位 ， ysin 为 y 的符号位
+
+如果 x 和 y 符号不同，可以直接判断。``!(xsin^ysin) | !xsin``
+
+这里采用了类似真值表的思考方式
+
+我们需要x 和 y 符号相同的时候返回1 ， 否则返回 0/1
+先处理前面 ， ``xsin^ysin``在符号相同会返回 0 ， 将其取反 ，**后面跟着按位或**，本式就成立。
+
+符号不同时候，x为正，就x非负。符号位为0 ，  或上 ``!xsin``
+这时候如果x , y 符号位不同且x为负，带入可得本式取得 0 ，符合情形。
+
+再通过``x - y = x + (-y) = x + (~y+1)``计算x - y
+如果x > y ， x - y > 0 , 判断符号位应该是 0 , 为了少用一个取反符号，我们可以变成 y - x
+
+现在问题就变为溢出如何处理。
+
+如果两个异号才会出现溢出。
+
+所以就和上面的反过来
+
+异号在相减变同号，所以同号相减变异号，x，y同号返回 0 ， 异号返回 1 
+相当于 异号 可能会溢出，这里判断不了，直接给了。
+
+如果是 同好， 直接判断是否 y - x < 0 即可，即 符号位为 1 返回 1  ，符号位 0 返回 0 。
+所以按位或上符号位即可
+
+``(xsin ^ ysin) | ysxsin ``
+
+
+
+
 ## isNegative
 ```c
 /* 
@@ -788,6 +877,254 @@ int isPower2(int x) {
 上面一题判断了什么是负数，直接拿过来用即可
 
 还有易错的地方就是 0 ，0不是二的幂 ， 所以后面跟上``!!x``就可以完成判断
+
+## addOK
+
+```c
+/* 
+ * addOK - Determine if can compute x+y without overflow
+ *   Example: addOK(0x80000000,0x80000000) = 0,
+ *            addOK(0x80000000,0x70000000) = 1, 
+ *   Legal ops: ! ~ & ^ | + << >>
+ *   Max ops: 20
+ *   Rating: 3
+ */
+int addOK(int x, int y) {
+  int xsin = x>>31 & 0x1;
+  int ysin = y>>31 & 0x1;
+  int xy = x+y;
+  int xysin = xy>>31 & 0x1;
+  return (xsin^ysin) | !(!(xsin ^ ysin) & ((xysin^xsin) | !xy)) | (!x & !y);
+}
+```
+这题题意是判断 x+y 是否溢出 ， 没有溢出返回 1 ， 否则返回 0
+
+在书本上我们学习了溢出分为下溢和上溢
+
+首先确认一点 ， 同号好相加才可能溢出
+
+所以我们可以先把异号不会溢出写出来
+```c
+  int xsin = x>>31 & 0x1;
+  int ysin = y>>31 & 0x1;
+  return (xsin^ysin) | ;
+```
+现在就是异号肯定返回 1 ， 同号返回 0(未定)
+
+回顾一下上溢 ： 两个正数相加 ， 出现了 负数 或 0
+回顾一下下溢 ： 两个负数相加 ， 出现了 正数 或 0
+
+实际上就是如果 x , y 符号相同``!(xsin ^ ysin) & `` 且 (x 和 x+y 的符号不同 **或** x+y == 0)那肯定溢出了。
+
+对溢出判断取反就是没溢出的判断了。
+
+最后测试了发现 ``x==0 && y==0`` 的情况出现纰漏,附加``| (!x & !y)``进行特判即可。
+
+## subtractionOK
+
+```c
+/* 
+ * subtractionOK - Determine if can compute x-y without overflow
+ *   Example: subtractionOK(0x80000000,0x80000000) = 1,
+ *            subtractionOK(0x80000000,0x70000000) = 0, 
+ *   Legal ops: ! ~ & ^ | + << >>
+ *   Max ops: 20
+ *   Rating: 3
+ */
+int subtractionOK(int x, int y) {
+  int xsin = x>>31 & 0x1;
+  int ysin = y>>31 & 0x1;
+  int xy = x+(~y+1);
+  int xysin = xy>>31 & 0x1;
+  return !(xsin^ysin) | !((xsin ^ ysin) & ((xysin^xsin) | !xy)) | (!x & !y);
+}
+```
+本题题意是 判断 x - y 是否溢出
+
+这里和上题的判断 x + y 是否溢出很类似。
+我们仅需要将 ``xy=x+y``改为``xy = x - y`` 然后符号判断改一下即可，但问题是超出了操作符限制。
+
+我们又注意到后面有关``xsin , ysin , xysin``的操作前面都有 非操作 ， 所以不需要按位且上 0x1 将其保留了。 
+
+答案就变成了:
+```c
+int subtractionOK(int x, int y) {
+  int xsin = x>>31 ;
+  int ysin = y>>31 ;
+  int xy = x+(~y+1);
+  int xysin = xy>>31 ;
+  return !(xsin^ysin) | !((xsin ^ ysin) & ((xysin^xsin) | !xy)) | (!x & !y);
+}
+```
+
+## oddBits
+
+```c
+/* 
+ * oddBits - return word with all odd-numbered bits set to 1
+ *   Legal ops: ! ~ & ^ | + << >>
+ *   Max ops: 8
+ *   Rating: 2
+ */
+int oddBits(void) {
+  return 0xAA | 0xAA<<8 | 0xAA<<16 | 0xAA<<24;;
+}
+```
+这道题意思是将偶数位都设为1，返回该值
+
+二进制串最低字节的偶数位为1 是 ``1010 1010 (0xAA)``
+32位有 4 个字节，将其位移到每一字节上再 按位或即可
+
+``0xAA | 0xAA<<8 | 0xAA<<16 | 0xAA<<24``
+
+## replaceByte
+
+```c
+/* 
+ * replaceByte(x,n,c) - Replace byte n in x with c
+ *   Bytes numbered from 0 (LSB) to 3 (MSB)
+ *   Examples: replaceByte(0x12345678,1,0xab) = 0x1234ab78
+ *   You can assume 0 <= n <= 3 and 0 <= c <= 255
+ *   Legal ops: ! ~ & ^ | + << >>
+ *   Max ops: 10
+ *   Rating: 3
+ */
+int replaceByte(int x, int n, int c) {
+  int maskc = c<<(n<<3);
+  int mask = 0xFF << (n<<3);
+  return x & ~mask | maskc;
+}
+```
+本题题意: 用 c 替换 x 中的第 n 个字节
+
+这道题其实答案在 byteSwap 里面
+
+核心就是构造出 **除了第n个字节是 0 其他字节都是 0xFF 的二进制串**
+
+## rotateLeft
+
+```c
+/* 
+ * rotateLeft - Rotate x to the left by n
+ *   Can assume that 0 <= n <= 31
+ *   Examples: rotateLeft(0x87654321,4) = 0x76543218
+ *   Legal ops: ~ & ^ | + << >> !
+ *   Max ops: 25
+ *   Rating: 3 
+ */
+int rotateLeft(int x, int n) {
+  return (x<<n) | ((x>>(32 + (~n+1))) & ~((~0)<<n));
+}
+```
+本题意思是将二进制串  x 向左位移(旋转) n 位。
+
+可以看成首尾相连的环，就能理解了。
+
+首先先将 x 左移 n 位 。 最低位补 0 ， 这时候将 x 的 最高 n 位 移到最低位补齐即可。
+
+``x << n`` , ``x>> (32 - n) == x >> (32 + (~n+1))`` , ``x<<n | x>>(32 + (~n+1))``
+
+到这一步依旧出现了类似写byteSwap的问题。也就说 按位或 ， 如果最高位是  1，这么一操作 ``| x>>(32 + (~n+1))`` ， 直接将前面的高位全变为 1了，答案肯定错。
+
+这时候我们就需要将其只保留我们需要的部分，根据按位或的性质，将``x>>(32 + (~n+1))``且上``000000011111``之类的，后面的 1 是我们需要的，前面的 0 是不能动的位。
+
+先且上最后或上的答案才对。
+
+那么问题就变为如何构造这后边 32 - n位的1？
+
+将其取反，因为高位连续 1 很容易得到，所以我们采用取反操作。
+``11111111 0000``， 1 的个数其实就是 32-n  ， 那最高的 32 - n 位是要保留的。
+所以可以由 (-1) << n , 将其构造出来。答案就出来了。
+
+## floatAbsVal
+```c
+/* 
+ * floatAbsVal - Return bit-level equivalent of absolute value of f for
+ *   floating point argument f.
+ *   Both the argument and result are passed as unsigned int's, but
+ *   they are to be interpreted as the bit-level representations of
+ *   single-precision floating point values.
+ *   When argument is NaN, return argument..
+ *   Legal ops: Any integer/unsigned operations incl. ||, &&. also if, while
+ *   Max ops: 10
+ *   Rating: 2
+ */
+ /* 
+ * floatAbsVal - 返回浮点数 f 的绝对值的位级等效表示。
+ *   参数和结果都作为无符号整数传递，但它们应被解释为单精度浮点值的位级表示。
+ *   当参数为 NaN 时，返回参数本身。
+ *   合法操作：任何整数/无符号运算，包括 ||、&&，还可以使用 if、while。
+ *   最大操作数：10
+ *   评级：2
+ */
+unsigned floatAbsVal(unsigned uf) {
+  int mask = ~(0x1 << 31);
+  int x = uf & mask;
+  if(x > 0x7f800000)
+    return uf;
+  return x;
+}
+```
+
+浮点数 IEEE  的表示方式 是 最高位为符号位 s ， 负数(s=1)和正数(s=0)
+
+取绝对值只要把符号位置为0
+
+最后判断一下 NAN .
+书本原话(节选) ：
+
+情况 3:特殊值
+**最后一类数值是当指阶码全为1的时候出现的。当小数域为非零时，结果值被称为“NaN”**
+
+所以如果值大于 ``0x7f800000`` 那么就肯定为 NAN ， 返回本身即可。
+
+否则将符号位变为0 ， 即按位且上 ``0x7fffffff``
+
+## floatIsEqual
+```c
+/* 
+ * floatIsEqual - Compute f == g for floating point arguments f and g.
+ *   Both the arguments are passed as unsigned int's, but
+ *   they are to be interpreted as the bit-level representations of
+ *   single-precision floating point values.
+ *   If either argument is NaN, return 0.
+ *   +0 and -0 are considered equal.
+ *   Legal ops: Any integer/unsigned operations incl. ||, &&. also if, while
+ *   Max ops: 25
+ *   Rating: 2
+ */
+ /* 
+ * floatIsEqual - 计算浮点数参数 f 和 g 是否相等 (f == g)。
+ *   参数都作为无符号整数传递，但应被解释为单精度浮点值的位级表示。
+ *   如果任一参数为 NaN，则返回 0。
+ *   +0 和 -0 被视为相等。
+ *   合法操作：任何整数/无符号运算，包括 ||、&&，还可以使用 if、while。
+ *   最大操作数：25
+ *   评级：2
+ */
+int floatIsEqual(unsigned uf, unsigned ug) {
+    int mask = ~(0x1 << 31);
+    int mask2 = 0xFF << 23;
+    int x = uf & mask;
+    int y = ug & mask;
+    if(x > mask2 || y > mask2)return 0;
+    if(!x && !y)return 1;
+    return uf == ug;
+}
+```
+本题题意就是判断两个浮点数是否相同。
+
+只需要注意NAN 和 -0/+0 这特殊情况。
+
+-0 / +0 判断在
+```c
+if(!x && !y)return 1;
+```
+核心就是 这样表示 都是 0
+
+## 最后整体判断
+
+![alt text](image-6.png)
 
 # 错误处理
 ## 错误1:make btest出错
