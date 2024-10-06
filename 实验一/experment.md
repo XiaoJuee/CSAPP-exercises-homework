@@ -865,13 +865,13 @@ int isNegative(int x) {
  *   Rating: 4
  */
 int isPower2(int x) {
-  return (!(x&(x-1))) & (!(x>>31)) & !!x;
+  return !(x&(x+(~0))) & !(x>>31) & !!x;
 }
 ```
 
 这个做题的思路就在于如果是2的幂，那么二进制里面只会出现一个1
 
-如果把这个1减去，也就是``x&(x-1)``，如果结果为0那么肯定是2的幂
+如果把这个1减去，也就是``x&(x-1) == x^(x+(~0))``，如果结果为0那么肯定是2的幂
 
 易错点就在没去判断负数不是二的幂
 上面一题判断了什么是负数，直接拿过来用即可
@@ -967,7 +967,7 @@ int subtractionOK(int x, int y) {
  *   Rating: 2
  */
 int oddBits(void) {
-  return 0xAA | 0xAA<<8 | 0xAA<<16 | 0xAA<<24;;
+  return 0xAA | 0xAA<<8 | 0xAA<<16 | 0xAA<<24;
 }
 ```
 这道题意思是将偶数位都设为1，返回该值
@@ -1125,6 +1125,642 @@ if(!x && !y)return 1;
 ## 最后整体判断
 
 ![alt text](image-6.png)
+![alt text](image-7.png)
+
+# 开始实验第二版本
+## bitXor
+```c
+/* 
+ * bitXor - x^y using only ~ and & 
+ *   Example: bitXor(4, 5) = 1
+ *   Legal ops: ~ &
+ *   Max ops: 14
+ *   Rating: 1
+ */
+int bitXor(int x, int y) {
+  return ~(~(~x & y) & ~(~y & x));
+}
+```
+题意：仅仅使用 按位取反和按位且 完成按位异或的操作
+
+这道题和练习题2.13 很像，如果可以还用按位或。那么我们可以``(~x & y) | (~y & x)``完成
+
+和练习题2.13思路一样，真值表一步一步来可得答案。
+
+## tmin
+```c
+/* 
+ * tmin - return minimum two's complement integer 
+ *   Legal ops: ! ~ & ^ | + << >>
+ *   Max ops: 4
+ *   Rating: 1
+ */
+int tmin(void) {
+  return 0x1 << 31;
+
+}
+```
+题意 ： 返回最小的二进制数
+其实是返回``0x80000000`` ， 自行构造即可。
+
+## isTmax
+```c
+/*
+ * isTmax - returns 1 if x is the maximum, two's complement number,
+ *     and 0 otherwise 
+ *   Legal ops: ! ~ & ^ | +
+ *   Max ops: 10
+ *   Rating: 1
+ */
+int isTmax(int x) {
+  return  !(x ^ ~(0x1 << 31));
+}
+```
+题意 ： 如果是二进制数的最大值 返回 1 否则返回 0
+其实就是返回 是否是 ``0x7fffffff``'
+
+先把数构造出来，在对x进行异或(利用 ``!(x ^ n) = (x == n)``)，如果是该值返回 0 ， 否则返回 1 。将答案取反即可。
+
+后面测试发现不能用左移
+
+那么就从数字本身的性质入手
+
+``0x7fffffff + 1 = 0x80000000``
+``~0x80000000 ^ 0x7fffffff = 0``
+
+然后再排除 ``-1``的情况
+
+```C
+int isTmax(int x) {
+  return  !(~(x+1)^x) & !!(x ^ (~0));
+}
+```
+
+## allOddBits
+```c
+/* 
+ * allOddBits - return 1 if all odd-numbered bits in word set to 1
+ *   where bits are numbered from 0 (least significant) to 31 (most significant)
+ *   Examples allOddBits(0xFFFFFFFD) = 0, allOddBits(0xAAAAAAAA) = 1
+ *   Legal ops: ! ~ & ^ | + << >>
+ *   Max ops: 12
+ *   Rating: 2
+ */
+int allOddBits(int x) {
+  int oddBits = 0xAA | 0xAA<<8 | 0xAA<<16 | 0xAA<<24;
+  return !((oddBits & x )^oddBits);
+}
+```
+题意 ： 判断传入的数是否全部偶数位都为1
+
+根据上面做的 oddBits 函数可知如何得到偶数位都是1的``0xAAAAAAAA``。
+
+用提取所有偶数位后利用异或进行相等比较即可。
+
+## negate
+```c
+/* 
+ * negate - return -x 
+ *   Example: negate(1) = -1.
+ *   Legal ops: ! ~ & ^ | + << >>
+ *   Max ops: 5
+ *   Rating: 2
+ */
+int negate(int x) {
+  return ~x+1;
+}
+```
+原题不讲了。
+
+## isAsciiDigit
+```c
+/* 
+ * isAsciiDigit - return 1 if 0x30 <= x <= 0x39 (ASCII codes for characters '0' to '9')
+ *   Example: isAsciiDigit(0x35) = 1.
+ *            isAsciiDigit(0x3a) = 0.
+ *            isAsciiDigit(0x05) = 0.
+ *   Legal ops: ! ~ & ^ | + << >>
+ *   Max ops: 15
+ *   Rating: 3
+ */
+int isAsciiDigit(int x) {
+  return !((x>>4 & 0xFF)^0x3) & !!(((x+6)>>4 & 0xFF)^0x4) & !(x&~0xff);
+}
+```
+题意 ： 判断是否是 ACCII 码中的 ``'0' - '9'``
+首先可以确定的是一定是 ``0x30 <= x <= 0x39``
+
+那么可以先把这个3判断掉``!((x>>4 & 0xFF)^0x3)``
+
+最后利用最大值是 ``0x39`` , 如果更大 ，将其 + 6 肯定进位，变成 ``0x4几``
+利用这一点判断是否``x <= 0x39``即可。
+
+## conditional
+```c
+/* 
+ * conditional - same as x ? y : z 
+ *   Example: conditional(2,4,5) = 4
+ *   Legal ops: ! ~ & ^ | + << >>
+ *   Max ops: 16
+ *   Rating: 3
+ */
+int conditional(int x, int y, int z) {
+  return ((!x - 1)) & y | ((!!x - 1))&z ;
+}
+```
+题意 ： 返回值等同于 ``x ? y : z``
+
+任何数 & -1 = 自身
+任何数 & 0 = 0
+
+利用这两个公式，将 x 变为 0 / -1 即可。
+
+答案按位或起来
+
+
+## isLessOrEqual
+```c
+/* 
+ * isLessOrEqual - if x <= y  then return 1, else return 0 
+ *   Example: isLessOrEqual(4,5) = 1.
+ *   Legal ops: ! ~ & ^ | + << >>
+ *   Max ops: 24
+ *   Rating: 3
+ */
+int isLessOrEqual(int x, int y) {
+  int xsuby = x + (~y+1);
+  int xsin = x>>31 ;
+  int ysin = y>>31 ;
+  int xsysin = xsuby >> 31;
+  return !(x^y) | (!(xsin^ysin) | !ysin) & ((xsin ^ ysin) | xsysin);
+}
+```
+题意 如果 $x \le y$ 返回 1 ， 否则返回 0
+
+和上面的 isGreater 很类似 ， 修改一下即可
+
+## logicalNeg
+```c
+/* 
+ * logicalNeg - implement the ! operator, using all of 
+ *              the legal operators except !
+ *   Examples: logicalNeg(3) = 0, logicalNeg(0) = 1
+ *   Legal ops: ~ & ^ | + << >>
+ *   Max ops: 12
+ *   Rating: 4 
+ */
+int logicalNeg(int x) {
+  int mask = x >> 31;
+  int x1 = (x+mask)^mask;
+  int xf = (~x1)+1;
+  return (xf>>31) + 1;
+}
+```
+题意 ： 不用 非 实现 非
+原题 不讲
+## howManyBits
+```c
+/* howManyBits - return the minimum number of bits required to represent x in
+ *             two's complement
+ *  Examples: howManyBits(12) = 5
+ *            howManyBits(298) = 10
+ *            howManyBits(-5) = 4
+ *            howManyBits(0)  = 1
+ *            howManyBits(-1) = 1
+ *            howManyBits(0x80000000) = 32
+ *  Legal ops: ! ~ & ^ | + << >>
+ *  Max ops: 90
+ *  Rating: 4
+ */
+int howManyBits(int x) {
+  int mask , mask16 , mask8 , mask4 , mask2 , mask1;
+  mask = x >> 31;
+  x=(mask&~x)|(~mask&x);
+  mask16 =!!(x>>16) <<4;
+  x = x >> mask16;
+  mask8=!!(x>>8)<<3;
+  x = x >> mask8;
+  mask4 = !!(x >> 4) << 2;
+  x = x >> mask4;
+  mask2 = !!(x >> 2) << 1;
+  x = x >> mask2;
+  mask1 = !!(x >> 1);
+  x = x >> mask1;
+  return x+mask1+mask2+mask4+mask8+mask16+1;  
+}
+```
+题意 ： 返回表示 x 所需的最小位数（以二进制补码形式）
+例如 ``12 (01100)`` , ``298(01 0010 1010)``
+
+可以发现还有最高位符号位
+而 ``-1(1)`` ， 如果只有一位表示有符号整数，1位也可以表示 - 1
+
+
+第一想法是找到最高位的 1 在哪里
+如果高 16 位有 1 ， 那么答案肯定加 16
+```c
+int mask16 = !!(x>>16)
+```
+如果高 16 位有 1 ， 那么我们目光就摆在高16位上，否则在低16位上。
+```c
+x = x>>(mask16<<4);
+```
+答案加上``(mask16<<4)``
+发现可以合并一下``int mask16 = !!(x>>16) << 4``
+
+然后看8位结果
+```c
+int mask8 = !!(x >> 8) << 3;
+x = x >> mask8;
+```
+直到只有一位
+
+## floatScale2
+```c
+/* 
+ * floatScale2 - Return bit-level equivalent of expression 2*f for
+ *   floating point argument f.
+ *   Both the argument and result are passed as unsigned int's, but
+ *   they are to be interpreted as the bit-level representation of
+ *   single-precision floating point values.
+ *   When argument is NaN, return argument
+ *   Legal ops: Any integer/unsigned operations incl. ||, &&. also if, while
+ *   Max ops: 30
+ *   Rating: 4
+ */
+ /* 
+ * floatScale2 - 返回表达式 2*f 的位级等价形式，参数为浮点数 f。
+ *   参数和结果都作为无符号整数传递，但应被解释为单精度浮点值的位级表示。
+ *   当参数为 NaN 时，返回参数本身。
+ *   合法操作：任何整数/无符号运算，包括 ||、&&，还可以使用 if、while。
+ *   最大操作数：30
+ *   评级：4
+ */
+
+unsigned floatScale2(unsigned uf) {
+  return 2;
+}
+```
+首先处理 NAN ，  上面有说到 NAN ， 直接拿过来用即可。
+```c
+  int mask = ~(0x1 << 31);
+  int x = uf & mask;
+  if(x > 0x7f800000)
+    return uf;
+```
+
+保留指数先
+```c
+int exp = (uf>>23) & 0xFF;
+
+```
+
+根据书上定义 ， IEEE浮点数标准用 $V = (-1)^s\times M\times 2^E$来表示一个数。
+
+那么分为三部分保留:
+```C
+int exp = (uf>>23) & 0xFF;
+```
+
+这时候我们就要注意规格化数和非规格化数。
+如果是规格化数 ， 直接把指数 + 1 即可，可能还要判断是否溢出
+
+如果是非规格化的数，需要把尾数右移一位。
+
+## floatFloat2Int
+```c
+/* 
+ * floatFloat2Int - Return bit-level equivalent of expression (int) f
+ *   for floating point argument f.
+ *   Argument is passed as unsigned int, but
+ *   it is to be interpreted as the bit-level representation of a
+ *   single-precision floating point value.
+ *   Anything out of range (including NaN and infinity) should return
+ *   0x80000000u.
+ *   Legal ops: Any integer/unsigned operations incl. ||, &&. also if, while
+ *   Max ops: 30
+ *   Rating: 4
+ */
+ /* 
+ * floatFloat2Int - 返回表达式 (int) f 的位级等价形式，参数为浮点数 f。
+ *   参数作为无符号整数传递，但应被解释为单精度浮点值的位级表示。
+ *   超出范围的任何值（包括 NaN 和无穷大）应返回 0x80000000u。
+ *   合法操作：任何整数/无符号运算，包括 ||、&&，还可以使用 if、while。
+ *   最大操作数：30
+ *   评级：4
+ */
+
+int floatFloat2Int(unsigned uf) {
+  return 2;
+}
+```
+## floatPower2
+```c
+/* 
+ * floatPower2 - Return bit-level equivalent of the expression 2.0^x
+ *   (2.0 raised to the power x) for any 32-bit integer x.
+ *
+ *   The unsigned value that is returned should have the identical bit
+ *   representation as the single-precision floating-point number 2.0^x.
+ *   If the result is too small to be represented as a denorm, return
+ *   0. If too large, return +INF.
+ * 
+ *   Legal ops: Any integer/unsigned operations incl. ||, &&. Also if, while 
+ *   Max ops: 30 
+ *   Rating: 4
+ */
+ /* 
+ * floatPower2 - 返回表达式 2.0^x 的位级等价形式
+ *   （2.0 的 x 次方），适用于任何 32 位整数 x。
+ *
+ *   返回的无符号值应与单精度浮点数 2.0^x 的位表示相同。
+ *   如果结果太小而无法表示为非规格化数，则返回 0。
+ *   如果结果太大，则返回 +INF。
+ * 
+ *   合法操作：任何整数/无符号运算，包括 ||、&&，还可以使用 if、while。
+ *   最大操作数：30 
+ *   评级：4
+ */
+
+unsigned floatPower2(int x) {
+    return 2;
+}
+```
+# 开始实验第三版本
+
+##  bitAnd
+
+```C
+/* 
+ * bitAnd - x&y using only ~ and | 
+ *   Example: bitAnd(6, 5) = 4
+ *   Legal ops: ~ |
+ *   Max ops: 8
+ *   Rating: 1
+ */
+int bitAnd(int x, int y) {
+  return ~(~x | ~y);
+}
+```
+题意 ： 仅仅用 ``~``和``|``实现按位且
+
+
+## getByte
+
+```C
+/* 
+ * getByte - Extract byte n from word x
+ *   Bytes numbered from 0 (LSB) to 3 (MSB)
+ *   Examples: getByte(0x12345678,1) = 0x56
+ *   Legal ops: ! ~ & ^ | + << >>
+ *   Max ops: 6
+ *   Rating: 2
+ */
+int getByte(int x, int n) {
+  return (x >> (n<<3)) & 0xff;
+}
+```
+原题不讲
+
+## logicalShift
+```C
+/* 
+ * logicalShift - shift x to the right by n, using a logical shift
+ *   Can assume that 0 <= n <= 31
+ *   Examples: logicalShift(0x87654321,4) = 0x08765432
+ *   Legal ops: ! ~ & ^ | + << >>
+ *   Max ops: 20
+ *   Rating: 3 
+ */
+int logicalShift(int x, int n) {
+  return (x>>n) & ~(((!!n)<<31)>>(n + (~0)));
+}
+```
+题意 ： 实现逻辑右移
+rotateLeft的姊妹题 ， 一个 左移一个右移 ， 但不太一样。
+不过更像是 课本课后习题 2.63
+
+思路很简单 ， 先算数位移。
+然后将位移的高n位设置为 0 即可
+高 n 位的 题 我们也做过 ： upperBits 高 n 位为 1 ， 直接套用取反即可。
+
+## bitCount
+
+```C
+/*
+ * bitCount - returns count of number of 1's in word
+ *   Examples: bitCount(5) = 2, bitCount(7) = 3
+ *   Legal ops: ! ~ & ^ | + << >>
+ *   Max ops: 40
+ *   Rating: 4
+ */
+int bitCount(int x) {
+  
+}
+```
+感觉是howManyBits的姊妹题。   
+
+## bang
+
+```C
+/* 
+ * bang - Compute !x without using !
+ *   Examples: bang(3) = 0, bang(0) = 1
+ *   Legal ops: ~ & ^ | + << >>
+ *   Max ops: 12
+ *   Rating: 4 
+ */
+int bang(int x) {
+  int mask = x >> 31;
+  int x1 = (x+mask)^mask;
+  int xf = (~x1)+1;
+  return (xf>>31) + 1;
+}
+```
+logicalNeg 是原题不讲了
+
+## tmin
+
+```C
+/* 
+ * tmin - return minimum two's complement integer 
+ *   Legal ops: ! ~ & ^ | + << >>
+ *   Max ops: 4
+ *   Rating: 1
+ */
+int tmin(void) {
+  return 0x1 << 31;
+}
+```
+原题不讲了。
+
+
+## fitsBits
+
+```C
+/* 
+ * fitsBits - return 1 if x can be represented as an 
+ *  n-bit, two's complement integer.
+ *   1 <= n <= 32
+ *   Examples: fitsBits(5,3) = 0, fitsBits(-4,3) = 1
+ *   Legal ops: ! ~ & ^ | + << >>
+ *   Max ops: 15
+ *   Rating: 2
+ */
+int fitsBits(int x, int n) {
+}
+```
+题意 ：  如果 x 可以表示为一个 n 位的二进制补码整数，则返回 1。
+
+## divpwr2 （有问题）
+
+```C
+/* 
+ * divpwr2 - Compute x/(2^n), for 0 <= n <= 30
+ *  Round toward zero
+ *   Examples: divpwr2(15,1) = 7, divpwr2(-33,4) = -2
+ *   Legal ops: ! ~ & ^ | + << >>
+ *   Max ops: 15
+ *   Rating: 2
+ */
+int divpwr2(int x, int n) {
+  int mask = x >> 31;
+  x = (x+mask)^mask; // absVal
+  return (x >> n) | ((~(x >> n) + 1) & (!mask + (~0)));
+}
+```
+题意 ： 返回 $\dfrac{x}{2^n}$。结果向 0 取整
+
+算数右移 n 位相当于 除以 2 的 次幂
+利用这一点...
+    
+
+## negate
+
+```C
+/* 
+ * negate - return -x 
+ *   Example: negate(1) = -1.
+ *   Legal ops: ! ~ & ^ | + << >>
+ *   Max ops: 5
+ *   Rating: 2
+ */
+int negate(int x) {
+  return ~x+1;
+}
+```
+原题不讲  
+## isPositive
+
+```C
+/* 
+ * isPositive - return 1 if x > 0, return 0 otherwise 
+ *   Example: isPositive(-1) = 0.
+ *   Legal ops: ! ~ & ^ | + << >>
+ *   Max ops: 8
+ *   Rating: 3
+ */
+int isPositive(int x) {
+  return !(x >> 31) & !!x;
+}
+```
+题意 ： 如果传入的 x 大于 0 返回 1 ， 否则返回 0 
+
+首先可以取符号位判断 是否是 负数 ， 去掉负数即可
+
+然后去掉 0 
+
+## isLessOrEqual
+
+```C
+/* 
+ * isLessOrEqual - if x <= y  then return 1, else return 0 
+ *   Example: isLessOrEqual(4,5) = 1
+ *   Legal ops: ! ~ & ^ | + << >>
+ *   Max ops: 24
+ *   Rating: 3
+ */
+int isLessOrEqual(int x, int y) {
+  int xsuby = x + (~y+1);
+  int xsin = x>>31 ;
+  int ysin = y>>31 ;
+  int xsysin = xsuby >> 31;
+  return !(x^y) | (!(xsin^ysin) | !ysin) & ((xsin ^ ysin) | xsysin);
+}
+```
+原题不讲了
+
+## ilog2
+
+```C
+/*
+ * ilog2 - return floor(log base 2 of x), where x > 0
+ *   Example: ilog2(16) = 4
+ *   Legal ops: ! ~ & ^ | + << >>
+ *   Max ops: 90
+ *   Rating: 4
+ */
+int ilog2(int x) {
+  
+}
+```
+
+## float_neg
+
+```C
+/* 
+ * float_neg - Return bit-level equivalent of expression -f for
+ *   floating point argument f.
+ *   Both the argument and result are passed as unsigned int's, but
+ *   they are to be interpreted as the bit-level representations of
+ *   single-precision floating point values.
+ *   When argument is NaN, return argument.
+ *   Legal ops: Any integer/unsigned operations incl. ||, &&. also if, while
+ *   Max ops: 10
+ *   Rating: 2
+ */
+unsigned float_neg(unsigned uf) {
+
+}
+```
+
+
+## float_i2f
+
+```C
+/* 
+ * float_i2f - Return bit-level equivalent of expression (float) x
+ *   Result is returned as unsigned int, but
+ *   it is to be interpreted as the bit-level representation of a
+ *   single-precision floating point values.
+ *   Legal ops: Any integer/unsigned operations incl. ||, &&. also if, while
+ *   Max ops: 30
+ *   Rating: 4
+ */
+unsigned float_i2f(int x) {
+  
+}
+```
+
+
+## float_twice
+
+```C
+/* 
+ * float_twice - Return bit-level equivalent of expression 2*f for
+ *   floating point argument f.
+ *   Both the argument and result are passed as unsigned int's, but
+ *   they are to be interpreted as the bit-level representation of
+ *   single-precision floating point values.
+ *   When argument is NaN, return argument
+ *   Legal ops: Any integer/unsigned operations incl. ||, &&. also if, while
+ *   Max ops: 30
+ *   Rating: 4
+ */
+unsigned float_twice(unsigned uf) {
+
+}
+```
 
 # 错误处理
 ## 错误1:make btest出错
