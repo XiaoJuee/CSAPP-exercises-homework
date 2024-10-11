@@ -1555,10 +1555,39 @@ rotateLeft的姊妹题 ， 一个 左移一个右移 ， 但不太一样。
  *   Rating: 4
  */
 int bitCount(int x) {
-  
+  int mark5 = 0x55 | (0x55<<8);
+  int mark3 = 0x33 | (0x33<<8);
+  int markf = 0x0f | (0x0f<<8);
+  mark5 = mark5 | (mark5 << 16);
+  mark3 = mark3 | (mark3 << 16);
+  markf = markf | (markf << 16);
+  x = (x & mark5) + ((x>>1) & mark5);
+  x = (x & mark3) + ((x>>2) & mark3);
+  x = (x & markf) + ((x>>4) & markf);
+  x = (x & 0xFF) + ((x>>8) & 0xFF) + ((x>>16) & 0xFF) + ((x>>24) & 0xFF);
+  return x;
 }
 ```
-感觉是howManyBits的姊妹题。   
+题意：统计 x 的二进制串中 1 的 个数
+感觉是howManyBits的姊妹题。 
+具体做法可以参考 [variable-precision SWAR 算法 计算汉明重量](https://zhuanlan.zhihu.com/p/165968167)
+
+第二种写法
+```C
+int bitCount(int x) {
+  int mark5 = 0x55 | (0x55<<8);
+  int mark3 = 0x33 | (0x33<<8);
+  int markf = 0x0f | (0x0f<<8);
+  mark5 = mark5 | (mark5 << 16);
+  mark3 = mark3 | (mark3 << 16);
+  markf = markf | (markf << 16);
+  x = (x & mark5) + ((x>>1) & mark5);
+  x = (x & mark3) + ((x>>2) & mark3);
+  x = (x & markf) + ((x>>4) & markf);
+  x = (x+(x<<8)+(x<<16)+(x<<24))>> 24;
+  return x;
+}
+```
 
 ## bang
 
