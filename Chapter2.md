@@ -511,6 +511,17 @@ $0.125 - 0.125 = 0$
 
 
 # 课后习题
+## 2.58
+```c
+bool is_little_endian(){
+    return 
+}
+```
+## 2.59
+```c
+return (x & 0xff) | ((~0xff)&y)
+```
+
 ## 2.61 写一个C表达式，在下列描述的条件下产生1，而在其他情况下得到0，假设x是int类型
 ### A. x的任何位都等于1
 解决方案1:
@@ -644,5 +655,62 @@ unsigned srl(unsigned x，intk)
     return xsra & ~((int)-1 << ((sizeof(int)<<3) - k))
 }
 ```
+## 2.64
+```c
+int any_odd_one(unsigned x) {
+  return !!(0xAAAAAAAA & x);
+}
+```
+
+也可以参考实验
+```c
+/* 
+ * allOddBits - return 1 if all odd-numbered bits in word set to 1
+ *   where bits are numbered from 0 (least significant) to 31 (most significant)
+ *   Examples allOddBits(0xFFFFFFFD) = 0, allOddBits(0xAAAAAAAA) = 1
+ *   Legal ops: ! ~ & ^ | + << >>
+ *   Max ops: 12
+ *   Rating: 2
+ */
+int allOddBits(int x) {
+  int oddBits = 0xAA | 0xAA<<8 | 0xAA<<16 | 0xAA<<24;
+  return !((oddBits & x )^oddBits);
+}
+```
+
+## 2.74
+具体做法参考实验 1 的 subtractionOK 函数即可
+```c
+int tsub_ok(int x, int y) {
+  int xsin = x>>31 & 0x1;
+  int ysin = y>>31 & 0x1;
+  int xy = x+(~y+1);
+  int xysin = xy>>31 & 0x1;
+  return !(xsin^ysin) | !((xsin ^ ysin) & ((xysin^xsin) | !xy)) | (!x & !y);
+}
+```
+
+## 2.77
+ A. K =17
+ B. K =-7
+ C. K =60
+ D. K =-122
+
+A.K = 17
+$17 = 2^4 + 2^0$
+``x = x<<4 + x``
+
+B.K= -7
+$7 = 2^3 - 2^0$
+``X = X - X<<3``
+
+C. K=60
+$60 = 2^6 - 2^2$
+``x = x<<6 - x<<2``
+
+D. K-112
+$112 = 2^7 - 2^4$
+``x = x<<4 - x<<7``
+
 
 更多更新请看[GITHUB仓库](https://github.com/XiaoJuee/CSAPP-exercises-homework/tree/main)
