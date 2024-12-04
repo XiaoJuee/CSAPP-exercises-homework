@@ -282,3 +282,4 @@ int sscanf(const char *str, const char *format, ...)
 
 发现传入的是``"%d %d"``，也就是意味着我们进去的字符串变成了两个数字
 
+答案之一:0 207
